@@ -28,7 +28,6 @@ struct ContentView: View {
     @State private var retryImageSelection = false
     @State private var cameraInitialized = false
     @State private var showCameraPermissionAlert = false
-    @State private var showCameraDetails = false
     
     // File operation queue to prevent race conditions
     private let fileOperationQueue = DispatchQueue(label: "com.tracingcam.fileOperations")
@@ -50,90 +49,22 @@ struct ContentView: View {
                     .edgesIgnoringSafeArea(.all)
                     .accessibilityLabel("Live camera view")
                     .onAppear {
+                        #if DEBUG
                         print("[ContentView] onAppear - Setting up camera")
+                        #endif
                         initializeCamera()
                         loadOverlayImage()
                         scheduleControlsHiding()
                         screenSize = geometry.size
                     }
                 
-                // Camera status and refresh button in top area
-                VStack {
-                    HStack {
-                        // Camera status indicator
-                        VStack(alignment: .leading) {
-                            Button(action: {
-                                withAnimation {
-                                    showCameraDetails.toggle()
-                                }
-                            }) {
-                                HStack {
-                                    Circle()
-                                        .fill(cameraService.isRunning ? Color.green : Color.red)
-                                        .frame(width: 12, height: 12)
-                                    
-                                    Text(cameraService.isRunning ? "Camera active" : "Camera inactive")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(.white)
-                                }
-                                .padding(8)
-                                .background(Color.black.opacity(0.6))
-                                .cornerRadius(20)
-                            }
-                            .accessibilityLabel("Camera status: \(cameraService.isRunning ? "active" : "inactive")")
-                            .accessibilityHint("Tap to show more camera details")
-                            
-                            // Expanded camera details
-                            if showCameraDetails {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    if let error = cameraService.error {
-                                        Text("Error: \(String(describing: error))")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.red)
-                                    }
-                                    
-                                    Text(cameraService.cameraStatus)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.white)
-                                        .lineLimit(5)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .padding(8)
-                                .background(Color.black.opacity(0.7))
-                                .cornerRadius(8)
-                                .transition(.opacity)
-                            }
-                        }
-                        
-                        Spacer()
-                        
-                        // Camera refresh button
-                        Button(action: {
-                            cameraService.refreshCamera()
-                        }) {
-                            Image(systemName: "arrow.triangle.2.circlepath.camera")
-                                .font(.system(size: 20))
-                                .foregroundColor(.white)
-                                .padding(10)
-                                .background(Color.black.opacity(0.6))
-                                .clipShape(Circle())
-                        }
-                        .disabled(!cameraService.canPerformCameraOperations)
-                        .accessibilityLabel("Refresh camera")
-                        .accessibilityHint("Tap to restart the camera if it's not working")
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 50)
-                    
-                    if !cameraService.isAuthorized {
-                        Text("Camera not authorized")
-                            .foregroundColor(.red)
-                            .padding()
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(8)
-                    }
-                    
-                    Spacer()
+                // Camera permission warning (only shown if needed)
+                if !cameraService.isAuthorized {
+                    Text("Camera not authorized")
+                        .foregroundColor(.red)
+                        .padding()
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(8)
                 }
                 
                 // Overlay image with gestures
@@ -219,7 +150,9 @@ struct ContentView: View {
                                 Slider(value: $settings.imageOpacity, in: 0.1...1.0)
                                     .onChange(of: settings.imageOpacity) { _ in
                                         userInteracted()
+                                        #if DEBUG
                                         print("[ContentView] Opacity changed to: \(settings.imageOpacity)")
+                                        #endif
                                     }
                                     .accessibilityLabel("Overlay opacity")
                                     .accessibilityValue("\(Int(settings.imageOpacity * 100)) percent")
@@ -283,20 +216,17 @@ struct ContentView: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                // Only toggle controls if we're not tapping on the camera status area
                 withAnimation {
                     showControls.toggle()
-                    // Auto-hide camera details when showing controls
-                    if showControls && showCameraDetails {
-                        showCameraDetails = false
-                    }
                 }
                 userInteracted()
             }
             .sheet(isPresented: $showImagePicker) {
                 ImagePicker(onImagePicked: { result in
                     if let (imageURL, directImage) = result {
+                        #if DEBUG
                         print("[ContentView] Image picked with URL: \(imageURL.absoluteString)")
+                        #endif
                         
                         // Store the image directly first
                         self.overlayImage = directImage
@@ -306,9 +236,13 @@ struct ContentView: View {
                         
                         // Add a small delay to ensure file system operations complete
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            #if DEBUG
                             print("[ContentView] Delayed verification of image file")
+                            #endif
                             if FileManager.default.fileExists(atPath: imageURL.path) {
+                                #if DEBUG
                                 print("[ContentView] Verified image file exists after delay")
+                                #endif
                             } else {
                                 print("[ContentView] WARNING: Image file still doesn't exist after delay")
                                 showError(message: "The image file could not be found. Please select a new one.", allowRetry: true)
@@ -340,14 +274,18 @@ struct ContentView: View {
                 updateLayoutForOrientation()
             }
             .onAppear {
+                #if DEBUG
                 print("[ContentView] Main view appeared")
+                #endif
                 
                 // Check camera permission first
                 checkCameraPermission()
                 
                 // Check if this is the first launch
                 if settings.isFirstLaunch {
+                    #if DEBUG
                     print("[ContentView] First launch detected")
+                    #endif
                     checkPhotoLibraryPermission { granted in
                         if granted {
                             showImagePicker = true
@@ -373,7 +311,9 @@ struct ContentView: View {
                 // Setup app foreground/background publishers
                 NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
                     .sink { _ in
+                        #if DEBUG
                         print("[ContentView] App entered foreground, reloading image and camera")
+                        #endif
                         loadOverlayImage() // Reload image in case it was deleted while app was in background
                         initializeCamera() // Re-initialize camera when coming back to foreground
                     }
@@ -382,7 +322,9 @@ struct ContentView: View {
                 // Listen for explicit camera-refresh notifications from SceneDelegate
                 NotificationCenter.default.publisher(for: SceneDelegate.forceCameraRefreshNotification)
                     .sink { _ in
+                        #if DEBUG
                         print("[ContentView] Received force-camera-refresh notification")
+                        #endif
                         forceRefreshCamera()
                     }
                     .store(in: &cancellables)
@@ -392,22 +334,18 @@ struct ContentView: View {
 
     /// Called when an external notification explicitly requests the camera be refreshed
     private func forceRefreshCamera() {
+        #if DEBUG
         print("[ContentView] Forcing camera refresh")
+        #endif
         // Recreate preview layer if needed & restart camera
         cameraService.refreshCamera()
-        
-        // Take a snapshot after forcing refresh to help diagnose issues
-        #if DEBUG
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            print("[ContentView] Taking debug snapshot after forced refresh")
-            cameraService.capturePreviewSnapshot()
-        }
-        #endif
     }
     
     /// Reset image position, scale, and rotation to default values
     private func resetImageTransforms() {
+        #if DEBUG
         print("[ContentView] Resetting image transforms")
+        #endif
         settings.imagePosition = .zero
         settings.imageScale = 0.5 // Default scale
         settings.imageRotation = 0.0 // Reset rotation
@@ -420,32 +358,32 @@ struct ContentView: View {
     private func initializeCamera() {
         // Avoid camera calls while operations are unsafe (during config / cooldown)
         guard cameraService.canPerformCameraOperations else {
+            #if DEBUG
             print("[ContentView] Camera operations currently unsafe, deferring initialization")
+            #endif
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 initializeCamera()
             }
             return
         }
         if !cameraService.isAuthorized {
+            #if DEBUG
             print("[ContentView] Camera not authorized, requesting permission")
+            #endif
             checkCameraPermission()
         } else {
+            #if DEBUG
             print("[ContentView] Setting up camera")
+            #endif
             cameraService.setupCamera()
             // Add a delay and retry if needed
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 if !cameraService.isRunning && cameraService.canPerformCameraOperations {
+                    #if DEBUG
                     print("[ContentView] Camera session not running after 1s, retrying setup")
+                    #endif
                     cameraService.setupCamera()
                 }
-                
-                #if DEBUG
-                // Take a snapshot after camera initialization to help diagnose issues
-                if self.cameraService.isRunning {
-                    print("[ContentView] Taking debug snapshot after camera initialization")
-                    self.cameraService.capturePreviewSnapshot()
-                }
-                #endif
             }
         }
     }
@@ -454,14 +392,20 @@ struct ContentView: View {
     private func checkCameraPermission() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
+            #if DEBUG
             print("[ContentView] Camera permission already granted")
+            #endif
             cameraService.setupCamera()
         case .notDetermined:
+            #if DEBUG
             print("[ContentView] Requesting camera permission")
+            #endif
             AVCaptureDevice.requestAccess(for: .video) { granted in
                 DispatchQueue.main.async {
                     if granted {
+                        #if DEBUG
                         print("[ContentView] Camera permission granted")
+                        #endif
                         cameraService.setupCamera()
                     } else {
                         print("[ContentView] Camera permission denied")
@@ -483,10 +427,14 @@ struct ContentView: View {
         let status = PHPhotoLibrary.authorizationStatus()
         switch status {
         case .authorized, .limited:
+            #if DEBUG
             print("[ContentView] Photo library permission already granted")
+            #endif
             completion(true)
         case .notDetermined:
+            #if DEBUG
             print("[ContentView] Requesting photo library permission")
+            #endif
             PHPhotoLibrary.requestAuthorization { newStatus in
                 DispatchQueue.main.async {
                     completion(newStatus == .authorized || newStatus == .limited)
@@ -511,7 +459,6 @@ struct ContentView: View {
         // If we're in landscape, we might want to adjust the default scale
         if isLandscape && overlayImage != nil {
             // Adjust scale if needed based on orientation
-            // This is just an example - you may want different behavior
             if let image = overlayImage {
                 let imageAspect = image.size.width / image.size.height
                 let screenAspect = screenWidth / screenHeight
@@ -539,27 +486,34 @@ struct ContentView: View {
     
     // Load the overlay image from the stored URL
     private func loadOverlayImage() {
+        #if DEBUG
         print("[ContentView] Loading overlay image")
+        #endif
         
         // If we already have an overlay image loaded, don't reload it
         if overlayImage != nil {
+            #if DEBUG
             print("[ContentView] Using existing overlay image in memory")
+            #endif
             return
         }
         
         guard let imageURL = settings.overlayImageURL else {
+            #if DEBUG
             print("[ContentView] No image URL found in settings")
+            #endif
             overlayImage = nil
             return
         }
         
         // Use a dedicated queue for file operations to prevent race conditions
         fileOperationQueue.async {
+            #if DEBUG
             print("[ContentView] Attempting to load image from: \(imageURL.absoluteString)")
+            #endif
             
             // Create a fresh file URL to avoid any URL encoding issues
             let freshURL = URL(fileURLWithPath: imageURL.path).standardizedFileURL
-            print("[ContentView] Using standardized URL path: \(freshURL.path)")
             
             // Check if file exists with proper error handling
             var isDirectory: ObjCBool = false
@@ -578,7 +532,9 @@ struct ContentView: View {
             do {
                 let attributes = try FileManager.default.attributesOfItem(atPath: freshURL.path)
                 let fileSize = attributes[.size] as? UInt64 ?? 0
+                #if DEBUG
                 print("[ContentView] Image file exists with size: \(fileSize) bytes")
+                #endif
                 
                 if fileSize == 0 {
                     print("[ContentView] Image file is empty")
@@ -593,12 +549,18 @@ struct ContentView: View {
             }
 
             do {
+                #if DEBUG
                 print("[ContentView] Reading image data from URL")
+                #endif
                 let imageData = try Data(contentsOf: freshURL)
+                #if DEBUG
                 print("[ContentView] Image data loaded: \(imageData.count) bytes")
+                #endif
                 
                 if let image = UIImage(data: imageData) {
+                    #if DEBUG
                     print("[ContentView] Successfully created UIImage with size: \(image.size.width)x\(image.size.height)")
+                    #endif
                     DispatchQueue.main.async {
                         self.overlayImage = image
                     }
@@ -726,25 +688,32 @@ struct CameraPreview: UIViewRepresentable {
     }
     
     func makeUIView(context: Context) -> UIView {
+        #if DEBUG
         print("[CameraPreview] Creating camera preview view")
+        #endif
         let view = UIView(frame: UIScreen.main.bounds)
         view.backgroundColor = .black
         view.isAccessibilityElement = false // The parent view handles accessibility
         
         // Always use the more robust recreation API so we never reuse a bad layer
         let previewLayer = cameraService.recreatePreviewLayer(for: view)
+        #if DEBUG
         print("[CameraPreview] Created preview layer")
-        // Give the view a debug background so we can detect if camera feed is missing
-        view.backgroundColor = UIColor(white: 0.05, alpha: 1.0)
+        #endif
+        
         // Render camera behind any SwiftUI overlay
         previewLayer.zPosition = -1
         
         // Avoid adding duplicate preview layers if makeUIView gets called
         if view.layer.sublayers?.contains(previewLayer) == false {
+            #if DEBUG
             print("[CameraPreview] Adding preview layer to view")
+            #endif
             view.layer.addSublayer(previewLayer)
         } else {
+            #if DEBUG
             print("[CameraPreview] Preview layer already present in view hierarchy")
+            #endif
         }
 
         // Store observer to rebuild layer if requested by CameraService
@@ -761,27 +730,29 @@ struct CameraPreview: UIViewRepresentable {
         
         // Ensure camera is set up
         if !cameraService.isAuthorized {
+            #if DEBUG
             print("[CameraPreview] Camera not authorized")
+            #endif
         } else if !cameraService.isRunning && cameraService.canPerformCameraOperations {
+            #if DEBUG
             print("[CameraPreview] Starting camera session")
+            #endif
             cameraService.startSession()
             
             // Double-check that session started
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 if !cameraService.isRunning {
+                    #if DEBUG
                     print("[CameraPreview] Camera session failed to start, retrying")
+                    #endif
                     cameraService.setupCamera()
                     cameraService.startSession()
-                } else {
-                    #if DEBUG
-                    // Take a snapshot after camera session starts successfully
-                    print("[CameraPreview] Taking debug snapshot after camera session started")
-                    self.cameraService.capturePreviewSnapshot()
-                    #endif
                 }
             }
         } else {
+            #if DEBUG
             print("[CameraPreview] Camera session already running")
+            #endif
         }
         
         return view
@@ -798,7 +769,9 @@ struct CameraPreview: UIViewRepresentable {
                connection.isVideoOrientationSupported {
                 let newOrientation = videoOrientation(from: UIDevice.current.orientation)
                 if connection.videoOrientation != newOrientation {
+                    #if DEBUG
                     print("[CameraPreview] Updating preview orientation to \(newOrientation.rawValue)")
+                    #endif
                     connection.videoOrientation = newOrientation
                 }
             }
@@ -807,36 +780,18 @@ struct CameraPreview: UIViewRepresentable {
             if !cameraService.isRunning &&
                cameraService.isAuthorized &&
                cameraService.canPerformCameraOperations {
+                #if DEBUG
                 print("[CameraPreview] Camera session not running during update, restarting")
+                #endif
                 cameraService.startSession()
             }
-            
-            #if DEBUG
-            // Take a snapshot during view update to help diagnose issues
-            // But don't do this too often - only when significant layout changes happen
-            if uiView.frame.width > 0 && uiView.frame.height > 0 {
-                // Use a static variable to track when we last took a snapshot
-                struct SnapshotTracker {
-                    static var lastSnapshotTime: Date?
-                }
-                
-                let now = Date()
-                if SnapshotTracker.lastSnapshotTime == nil || 
-                   now.timeIntervalSince(SnapshotTracker.lastSnapshotTime!) > 5.0 {
-                    print("[CameraPreview] Taking debug snapshot during view update")
-                    self.cameraService.capturePreviewSnapshot()
-                    SnapshotTracker.lastSnapshotTime = now
-                }
-            }
-            #endif
         }
-
-        // Re-debug after potential layout change
-        debugCameraView(uiView)
     }
     
     static func dismantleUIView(_ uiView: UIView, coordinator: ()) {
+        #if DEBUG
         print("[CameraPreview] Dismantling camera preview view")
+        #endif
         // Ensure we clean up any resources when view is removed
         for layer in uiView.layer.sublayers ?? [] {
             layer.removeFromSuperlayer()
@@ -846,20 +801,6 @@ struct CameraPreview: UIViewRepresentable {
         
         // Let camera service know layer is gone - use notification instead of direct access
         NotificationCenter.default.post(name: NSNotification.Name("CameraPreviewDismantled"), object: nil)
-    }
-
-    // MARK: - Debug helpers
-    /// Logs the sublayer hierarchy and visually outlines the preview layer.
-    private func debugCameraView(_ view: UIView) {
-        #if DEBUG
-        print("[CameraPreview][DEBUG] Sublayer count: \(view.layer.sublayers?.count ?? 0)")
-        if let layers = view.layer.sublayers {
-            for (idx, layer) in layers.enumerated() {
-                print(" ├─ Layer[\(idx)]: \(layer) frame=\(layer.frame) z=\(layer.zPosition)")
-            }
-        }
-        // Removed temporary visual border on preview layer now that debugging is complete.
-        #endif
     }
 }
 
@@ -873,7 +814,9 @@ struct ImagePicker: UIViewControllerRepresentable {
     private let fileOperationLock = NSLock()
     
     func makeUIViewController(context: Context) -> PHPickerViewController {
+        #if DEBUG
         print("[ImagePicker] Creating image picker")
+        #endif
         var configuration = PHPickerConfiguration()
         configuration.filter = .images
         configuration.selectionLimit = 1
@@ -902,11 +845,15 @@ struct ImagePicker: UIViewControllerRepresentable {
         }
         
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            #if DEBUG
             print("[ImagePicker] Finished picking with \(results.count) results")
+            #endif
             parent.presentationMode.wrappedValue.dismiss()
             
             guard !results.isEmpty else {
+                #if DEBUG
                 print("[ImagePicker] No image selected (user cancelled)")
+                #endif
                 // User cancelled without selecting an image
                 return
             }
@@ -918,7 +865,9 @@ struct ImagePicker: UIViewControllerRepresentable {
             }
             
             if provider.canLoadObject(ofClass: UIImage.self) {
+                #if DEBUG
                 print("[ImagePicker] Loading image from provider")
+                #endif
                 provider.loadObject(ofClass: UIImage.self) { [weak self] image, error in
                     DispatchQueue.main.async {
                         guard let self = self else { return }
@@ -935,7 +884,9 @@ struct ImagePicker: UIViewControllerRepresentable {
                             return
                         }
                         
+                        #if DEBUG
                         print("[ImagePicker] Successfully loaded image: \(image.size.width)x\(image.size.height)")
+                        #endif
                         
                         // Use a dedicated queue for file operations
                         DispatchQueue(label: "com.tracingcam.imageSaving").async {
@@ -952,16 +903,22 @@ struct ImagePicker: UIViewControllerRepresentable {
                                 try? fileManager.contentsOfDirectory(atPath: imageURL.deletingLastPathComponent().path)
                                 
                                 if fileManager.fileExists(atPath: imageURL.path) {
+                                    #if DEBUG
                                     print("[ImagePicker] Verified image exists at: \(imageURL.path)")
+                                    #endif
                                     
                                     // Try to load the image back to double-check
                                     if let verifyData = try? Data(contentsOf: imageURL),
                                        let verifiedImage = UIImage(data: verifyData) {
+                                        #if DEBUG
                                         print("[ImagePicker] Successfully verified image can be loaded")
+                                        #endif
                                         
                                         // Use path-based URL to avoid encoding issues
                                         let pathBasedURL = URL(fileURLWithPath: imageURL.path).standardizedFileURL
+                                        #if DEBUG
                                         print("[ImagePicker] Using standardized URL: \(pathBasedURL.path)")
+                                        #endif
                                         
                                         // Pass both the URL and the image directly
                                         DispatchQueue.main.async {
@@ -1008,7 +965,9 @@ struct ImagePicker: UIViewControllerRepresentable {
             // Create a unique filename
             let fileName = UUID().uuidString
             let fileURL = documentsDirectory.appendingPathComponent(fileName).appendingPathExtension("jpg")
+            #if DEBUG
             print("[ImagePicker] Saving image to: \(fileURL.path)")
+            #endif
             
             do {
                 // Ensure we have valid image data with good quality
@@ -1024,12 +983,16 @@ struct ImagePicker: UIViewControllerRepresentable {
                 if fileManager.fileExists(atPath: fileURL.path) {
                     let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
                     let fileSize = attributes[.size] as? UInt64 ?? 0
+                    #if DEBUG
                     print("[ImagePicker] File saved successfully, size: \(fileSize) bytes")
+                    #endif
                     
                     // Force a sync to ensure the file is fully written to disk
                     let parentDir = fileURL.deletingLastPathComponent()
                     let dirContents = try? fileManager.contentsOfDirectory(atPath: parentDir.path)
+                    #if DEBUG
                     print("[ImagePicker] Directory has \(dirContents?.count ?? 0) files after save")
+                    #endif
                     
                     return fileURL
                 } else {

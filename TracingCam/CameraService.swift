@@ -1079,8 +1079,8 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         newLayer.videoGravity = .resizeAspectFill
         newLayer.opacity = 1.0
         
-        // Use a distinctive background color so we can tell if the layer is visible
-        newLayer.backgroundColor = UIColor(red: 0.2, green: 0.0, blue: 0.0, alpha: 1.0).cgColor
+        // Set standard black background – no debug tint in production
+        newLayer.backgroundColor = UIColor.black.cgColor
         
         // Ensure layer is visible in the view hierarchy
         newLayer.zPosition = -1
@@ -1104,7 +1104,9 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             }
         }
         
+        #if DEBUG
         print("[CameraService] Created new preview layer with dimensions: \(newLayer.frame.width)x\(newLayer.frame.height)")
+        #endif
         
         // Force immediate layout update
         CATransaction.begin()
