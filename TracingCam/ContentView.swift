@@ -355,6 +355,41 @@ struct ContentView: View {
         }
     }
     
+    // Enable screenshot protection for copyright reasons
+    private func enableScreenshotProtection() {
+        DispatchQueue.main.async {
+            // Use modern API to access windows
+            if #available(iOS 15.0, *) {
+                // Get the active scene's windows
+                for scene in UIApplication.shared.connectedScenes {
+                    guard let windowScene = scene as? UIWindowScene else { continue }
+                    for window in windowScene.windows {
+                        if #available(iOS 11.0, *) {
+                            // Dim the window while screen-capture is active; this is a public,
+                            // App-Store-safe technique that avoids private APIs.
+                            let updateSecureState: () -> Void = {
+                                window.alpha = window.screen.isCaptured ? 0.1 : 1.0
+                            }
+                            updateSecureState()
+                            NotificationCenter.default.addObserver(
+                                forName: UIScreen.capturedDidChangeNotification,
+                                object: window.screen,
+                                queue: .main
+                            ) { _ in updateSecureState() }
+                        }
+                    }
+                }
+            } else {
+                // Fallback for older iOS versions
+                for window in UIApplication.shared.windows {
+                    if #available(iOS 11.0, *) {
+                        window.alpha = window.screen.isCaptured ? 0.1 : 1.0
+                    }
+                }
+            }
+        }
+    }
+    
     // Show error alert
     private func showError(message: String, allowRetry: Bool = false) {
         print("[ContentView] Error: \(message)")
@@ -376,8 +411,12 @@ struct ContentView: View {
         
         print("[ContentView] Attempting to load image from: \(imageURL.absoluteString)")
         
-        if !FileManager.default.fileExists(atPath: imageURL.path) {
-            print("[ContentView] Image file does not exist at path: \(imageURL.path)")
+        // Create a fresh file URL to avoid any URL encoding issues
+        let freshURL = URL(fileURLWithPath: imageURL.path)
+        print("[ContentView] Using fresh URL path: \(freshURL.path)")
+        
+        if !FileManager.default.fileExists(atPath: freshURL.path) {
+            print("[ContentView] Image file does not exist at path: \(freshURL.path)")
             overlayImage = nil
             showError(message: "The image file could not be found. Please select a new one.", allowRetry: true)
             return
@@ -385,7 +424,7 @@ struct ContentView: View {
 
         do {
             print("[ContentView] Reading image data from URL")
-            let imageData = try Data(contentsOf: imageURL)
+            let imageData = try Data(contentsOf: freshURL)
             print("[ContentView] Image data loaded: \(imageData.count) bytes")
             
             if let image = UIImage(data: imageData) {
@@ -576,12 +615,31 @@ struct ImagePicker: UIViewControllerRepresentable {
                         
                         print("[ImagePicker] Successfully loaded image: \(image.size.width)x\(image.size.height)")
                         
-                        // Save image to temporary location and return URL
-                        if let imageURL = self.saveImageToTemporaryLocation(image) {
-                            print("[ImagePicker] Saved image to: \(imageURL.absoluteString)")
-                            self.parent.onImagePicked(imageURL)
+                        // Save image to app's documents directory
+                        if let imageURL = self.saveImageToAppDocuments(image) {
+                            // Verify the image exists immediately after saving
+                            if FileManager.default.fileExists(atPath: imageURL.path) {
+                                print("[ImagePicker] Verified image exists at: \(imageURL.path)")
+                                
+                                // Try to load the image back to double-check
+                                if let verifyData = try? Data(contentsOf: imageURL),
+                                   UIImage(data: verifyData) != nil {
+                                    print("[ImagePicker] Successfully verified image can be loaded")
+                                    
+                                    // Use path-based URL to avoid encoding issues
+                                    let pathBasedURL = URL(fileURLWithPath: imageURL.path)
+                                    print("[ImagePicker] Using path-based URL: \(pathBasedURL.path)")
+                                    self.parent.onImagePicked(pathBasedURL)
+                                } else {
+                                    print("[ImagePicker] Image verification failed - can't load data")
+                                    self.parent.onImagePicked(nil)
+                                }
+                            } else {
+                                print("[ImagePicker] File verification failed - doesn't exist at path")
+                                self.parent.onImagePicked(nil)
+                            }
                         } else {
-                            print("[ImagePicker] Failed to save image to temporary location")
+                            print("[ImagePicker] Failed to save image to app documents")
                             self.parent.onImagePicked(nil)
                         }
                     }
@@ -592,24 +650,47 @@ struct ImagePicker: UIViewControllerRepresentable {
             }
         }
         
-        private func saveImageToTemporaryLocation(_ image: UIImage) -> URL? {
+        // Improved method to save images to app's documents directory
+        private func saveImageToAppDocuments(_ image: UIImage) -> URL? {
+            let fileManager = FileManager.default
+            
+            // Get the documents directory URL
+            guard let documentsDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                print("[ImagePicker] Could not access documents directory")
+                return nil
+            }
+            
+            // Create a unique filename
+            let fileName = UUID().uuidString
+            let fileURL = documentsDirectory.appendingPathComponent(fileName).appendingPathExtension("jpg")
+            print("[ImagePicker] Saving image to: \(fileURL.path)")
+            
             do {
-                let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                let fileName = UUID().uuidString
-                let fileURL = documentsDirectory.appendingPathComponent(fileName).appendingPathExtension("jpg")
-                
-                // Ensure we have valid image data
-                guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+                // Ensure we have valid image data with good quality
+                guard let imageData = image.jpegData(compressionQuality: 0.9) else {
                     print("[ImagePicker] Could not create JPEG data from image")
                     return nil
                 }
                 
-                try imageData.write(to: fileURL)
+                // Write the data to the file URL
+                try imageData.write(to: fileURL, options: .atomic)
+                
+                // Set file attributes to prevent iCloud backup (optional)
+                var resourceValues = URLResourceValues()
+                resourceValues.isExcludedFromBackup = true
+                try fileURL.setResourceValues(resourceValues)
+                
                 return fileURL
             } catch {
                 print("[ImagePicker] Error saving image: \(error.localizedDescription)")
                 return nil
             }
+        }
+        
+        // Keep this for backward compatibility but mark as deprecated
+        @available(*, deprecated, message: "Use saveImageToAppDocuments instead")
+        private func saveImageToTemporaryLocation(_ image: UIImage) -> URL? {
+            return saveImageToAppDocuments(image)
         }
     }
 }

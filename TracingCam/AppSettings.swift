@@ -121,11 +121,13 @@ class AppSettings: ObservableObject {
         
         // Save image URL as string
         if let url = overlayImageURL {
-            // Persist only the file-system path to avoid percent-encoding issues
-            #if DEBUG
-            print("[AppSettings] Saving overlay image URL → \(url.path)")
-            #endif
-            defaults.set(url.path, forKey: Keys.imageURLString)
+            // Persist only the normalised on-disk *path* to avoid percent-encoding
+            // or sandbox-container-relocation issues that can arise across launches.
+            let path = url.standardizedFileURL.path
+#if DEBUG
+            print("[AppSettings] Saving overlay image URL → \(path)")
+#endif
+            defaults.set(path, forKey: Keys.imageURLString)
         } else {
             // Remove key when image is cleared
             defaults.removeObject(forKey: Keys.imageURLString)
@@ -147,15 +149,16 @@ class AppSettings: ObservableObject {
         // Load image URL
         if let storedPath = defaults.string(forKey: Keys.imageURLString) {
             let fileURL = URL(fileURLWithPath: storedPath)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                #if DEBUG
+            let fm = FileManager.default
+            if fm.fileExists(atPath: fileURL.path) && fm.isReadableFile(atPath: fileURL.path) {
+#if DEBUG
                 print("[AppSettings] Loaded overlay image URL ← \(fileURL.path)")
-                #endif
-                overlayImageURL = fileURL
+#endif
+                overlayImageURL = fileURL.standardizedFileURL
             } else {
-                #if DEBUG
-                print("[AppSettings] Stored overlay image path not found on disk, clearing reference")
-                #endif
+#if DEBUG
+                print("[AppSettings] Stored overlay image path '\(fileURL.path)' not reachable – clearing reference")
+#endif
                 overlayImageURL = nil
             }
         } else {
