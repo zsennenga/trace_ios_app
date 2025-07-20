@@ -592,11 +592,21 @@ struct CameraPreview: UIViewRepresentable {
         
         let previewLayer = cameraService.createPreviewLayer(for: view)
         print("[CameraPreview] Created preview layer")
+        // Render camera behind any SwiftUI overlay
+        previewLayer.zPosition = -1
         
         // Avoid adding duplicate preview layers if makeUIView gets called
         if view.layer.sublayers?.contains(previewLayer) == false {
             print("[CameraPreview] Adding preview layer to view")
             view.layer.addSublayer(previewLayer)
+        } else {
+            print("[CameraPreview] Preview layer already present in view hierarchy")
+        }
+        
+        // Ensure the preview layer orientation matches device immediately
+        DispatchQueue.main.async {
+            self.cameraService.previewLayer?.connection?.videoOrientation =
+                AVCaptureVideoOrientation(deviceOrientation: UIDevice.current.orientation)
         }
         
         // Ensure camera is set up
@@ -624,6 +634,18 @@ struct CameraPreview: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {
         if let previewLayer = cameraService.previewLayer {
             previewLayer.frame = uiView.bounds
+            // Keep layer at back
+            previewLayer.zPosition = -1
+            
+            // Update orientation on each layout change
+            if let connection = previewLayer.connection,
+               connection.isVideoOrientationSupported {
+                let newOrientation = AVCaptureVideoOrientation(deviceOrientation: UIDevice.current.orientation)
+                if connection.videoOrientation != newOrientation {
+                    print("[CameraPreview] Updating preview orientation to \(newOrientation.rawValue)")
+                    connection.videoOrientation = newOrientation
+                }
+            }
             
             // Ensure camera is running when view updates
             if !cameraService.isRunning &&
@@ -640,6 +662,13 @@ struct CameraPreview: UIViewRepresentable {
         // Ensure we clean up any resources when view is removed
         for layer in uiView.layer.sublayers ?? [] {
             layer.removeFromSuperlayer()
+        }
+        // Clear reference to avoid dangling layer
+        uiView.layer.sublayers?.removeAll()
+        // Let camera service know layer is gone
+        DispatchQueue.main.async {
+            let svc = (uiView.window?.rootViewController as? UIHostingController<ContentView>)?.rootView.cameraService
+            svc?.previewLayer = nil
         }
     }
 }

@@ -862,10 +862,35 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     // MARK: - Preview Layer
     func createPreviewLayer(for view: UIView) -> AVCaptureVideoPreviewLayer {
         print("[CameraService] Creating preview layer for view")
+        print("[CameraService]   • Session running: \(session.isRunning)")
+        print("[CameraService]   • Session inputs: \(session.inputs.count), outputs: \(session.outputs.count)")
+
+        // If we already have a layer, reuse it (helps during hot-reloads)
+        if let existingLayer = self.previewLayer {
+            print("[CameraService] Re-using existing preview layer")
+            existingLayer.frame = view.bounds
+            existingLayer.bounds = view.bounds
+            existingLayer.position = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+            return existingLayer
+        }
+
         let previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspectFill
+
+        // Explicit geometry setup
         previewLayer.frame = view.bounds
+        previewLayer.bounds = view.bounds
+        previewLayer.position = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+
         self.previewLayer = previewLayer
+
+        // Validate connection
+        if let connection = previewLayer.connection {
+            print("[CameraService]   • Preview connection created (enabled=\(connection.isEnabled))")
+        } else {
+            print("[CameraService]   ⚠️ Preview connection is nil")
+        }
+
         return previewLayer
     }
     
