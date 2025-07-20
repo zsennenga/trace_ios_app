@@ -135,6 +135,14 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             name: .AVCaptureSessionWasInterrupted,
             object: session
         )
+
+        // Listen for preview-layer dismantle so we don't keep a dangling reference
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(previewLayerWasDismantled),
+            name: NSNotification.Name("CameraPreviewDismantled"),
+            object: nil
+        )
         
         checkPermissions()
     }
@@ -145,6 +153,16 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         cancelSetupTimer()
         stopStatusCheckTimer()
         teardownSession()
+    }
+
+    // MARK: - Preview-layer cleanup
+    @objc private func previewLayerWasDismantled() {
+        DispatchQueue.main.async {
+            if self.previewLayer != nil {
+                print("[CameraService] Preview layer dismantled – clearing reference")
+            }
+            self.previewLayer = nil
+        }
     }
     
     // MARK: - Public Camera Operation Safety Check

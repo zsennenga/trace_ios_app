@@ -584,6 +584,16 @@ struct ContentView: View {
 struct CameraPreview: UIViewRepresentable {
     @ObservedObject var cameraService: CameraService
     
+    // Helper function to convert UIDeviceOrientation to AVCaptureVideoOrientation
+    private func videoOrientation(from deviceOrientation: UIDeviceOrientation) -> AVCaptureVideoOrientation {
+        switch deviceOrientation {
+        case .landscapeLeft:  return .landscapeRight
+        case .landscapeRight: return .landscapeLeft
+        case .portraitUpsideDown: return .portraitUpsideDown
+        default: return .portrait
+        }
+    }
+    
     func makeUIView(context: Context) -> UIView {
         print("[CameraPreview] Creating camera preview view")
         let view = UIView(frame: UIScreen.main.bounds)
@@ -605,8 +615,11 @@ struct CameraPreview: UIViewRepresentable {
         
         // Ensure the preview layer orientation matches device immediately
         DispatchQueue.main.async {
-            self.cameraService.previewLayer?.connection?.videoOrientation =
-                AVCaptureVideoOrientation(deviceOrientation: UIDevice.current.orientation)
+            if let connection = self.cameraService.previewLayer?.connection,
+               connection.isVideoOrientationSupported {
+                let orientation = self.videoOrientation(from: UIDevice.current.orientation)
+                connection.videoOrientation = orientation
+            }
         }
         
         // Ensure camera is set up
@@ -640,7 +653,7 @@ struct CameraPreview: UIViewRepresentable {
             // Update orientation on each layout change
             if let connection = previewLayer.connection,
                connection.isVideoOrientationSupported {
-                let newOrientation = AVCaptureVideoOrientation(deviceOrientation: UIDevice.current.orientation)
+                let newOrientation = videoOrientation(from: UIDevice.current.orientation)
                 if connection.videoOrientation != newOrientation {
                     print("[CameraPreview] Updating preview orientation to \(newOrientation.rawValue)")
                     connection.videoOrientation = newOrientation
@@ -665,11 +678,9 @@ struct CameraPreview: UIViewRepresentable {
         }
         // Clear reference to avoid dangling layer
         uiView.layer.sublayers?.removeAll()
-        // Let camera service know layer is gone
-        DispatchQueue.main.async {
-            let svc = (uiView.window?.rootViewController as? UIHostingController<ContentView>)?.rootView.cameraService
-            svc?.previewLayer = nil
-        }
+        
+        // Let camera service know layer is gone - use notification instead of direct access
+        NotificationCenter.default.post(name: NSNotification.Name("CameraPreviewDismantled"), object: nil)
     }
 }
 
