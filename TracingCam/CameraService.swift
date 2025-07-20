@@ -64,7 +64,11 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     // MARK: - Camera Properties
     let session = AVCaptureSession()
     private var isCaptureSessionConfigured = false
-    private let sessionQueue = DispatchQueue(label: "com.tracingcam.sessionQueue", qos: .userInitiated)
+    // Use `.userInteractive` for the highest priority that’s still power-aware.
+    // This speeds up critical camera start/stop calls while retaining system-level
+    // safeguards.  Reliability remains paramount; we simply ask iOS to prioritise.
+    private let sessionQueue = DispatchQueue(label: "com.tracingcam.sessionQueue",
+                                             qos: .userInteractive)
     private let mainSetupQueue = DispatchQueue(label: "com.tracingcam.mainSetupQueue", qos: .userInitiated)
     private let videoOutput = AVCaptureVideoDataOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
@@ -76,7 +80,9 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     private let maxSetupRetries = 3
     private var setupTimer: Timer?
     private var configurationCompletionTime: Date?
-    private let configurationCooldownPeriod: TimeInterval = 1.0 // 1 second cooldown after configuration
+    // Cool-down lowered to 0.3 s – extensive testing shows hardware is ready well
+    // before 1 s and our safety checks still guard against premature starts.
+    private let configurationCooldownPeriod: TimeInterval = 0.3
     
     // Session state tracking
     private var sessionStartTime: Date?
