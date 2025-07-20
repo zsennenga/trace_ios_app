@@ -602,6 +602,8 @@ struct CameraPreview: UIViewRepresentable {
         
         let previewLayer = cameraService.createPreviewLayer(for: view)
         print("[CameraPreview] Created preview layer")
+        // Give the view a debug background so we can detect if camera feed is missing
+        view.backgroundColor = UIColor(white: 0.05, alpha: 1.0)
         // Render camera behind any SwiftUI overlay
         previewLayer.zPosition = -1
         
@@ -613,6 +615,9 @@ struct CameraPreview: UIViewRepresentable {
             print("[CameraPreview] Preview layer already present in view hierarchy")
         }
         
+        // Debug the view/layer hierarchy
+        debugCameraView(view)
+
         // Ensure the preview layer orientation matches device immediately
         DispatchQueue.main.async {
             if let connection = self.cameraService.previewLayer?.connection,
@@ -668,6 +673,9 @@ struct CameraPreview: UIViewRepresentable {
                 cameraService.startSession()
             }
         }
+
+        // Re-debug after potential layout change
+        debugCameraView(uiView)
     }
     
     static func dismantleUIView(_ uiView: UIView, coordinator: ()) {
@@ -681,6 +689,24 @@ struct CameraPreview: UIViewRepresentable {
         
         // Let camera service know layer is gone - use notification instead of direct access
         NotificationCenter.default.post(name: NSNotification.Name("CameraPreviewDismantled"), object: nil)
+    }
+
+    // MARK: - Debug helpers
+    /// Logs the sublayer hierarchy and visually outlines the preview layer.
+    private func debugCameraView(_ view: UIView) {
+        #if DEBUG
+        print("[CameraPreview][DEBUG] Sublayer count: \(view.layer.sublayers?.count ?? 0)")
+        if let layers = view.layer.sublayers {
+            for (idx, layer) in layers.enumerated() {
+                print(" ├─ Layer[\(idx)]: \(layer) frame=\(layer.frame) z=\(layer.zPosition)")
+            }
+        }
+        if let pl = cameraService.previewLayer {
+            // Add a visible border so we can confirm it’s on-screen
+            pl.borderColor = UIColor.red.withAlphaComponent(0.5).cgColor
+            pl.borderWidth = 2
+        }
+        #endif
     }
 }
 
