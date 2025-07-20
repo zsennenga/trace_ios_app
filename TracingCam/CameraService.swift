@@ -1328,14 +1328,27 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
 
 // MARK: - Helpers
 
-private extension AVCaptureVideoOrientation {
+// Make the extension public so it can be used from other files
+public extension AVCaptureVideoOrientation {
     /// Map a `UIDeviceOrientation` to an `AVCaptureVideoOrientation`
+    /// This initializer always returns a valid orientation, defaulting to portrait for unknown cases
+    /// - Parameter deviceOrientation: The device orientation to convert
     init(deviceOrientation: UIDeviceOrientation) {
         switch deviceOrientation {
-        case .landscapeLeft:  self = .landscapeRight
-        case .landscapeRight: self = .landscapeLeft
-        case .portraitUpsideDown: self = .portraitUpsideDown
-        default: self = .portrait
+        case .portrait:
+            self = .portrait
+        case .portraitUpsideDown:
+            self = .portraitUpsideDown
+        case .landscapeLeft:
+            self = .landscapeRight  // Intentionally reversed
+        case .landscapeRight:
+            self = .landscapeLeft   // Intentionally reversed
+        case .faceUp, .faceDown, .unknown:
+            // Default to portrait for any other orientation
+            self = .portrait
+        @unknown default:
+            // Future-proof for any new device orientations
+            self = .portrait
         }
     }
 }
