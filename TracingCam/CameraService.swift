@@ -882,32 +882,77 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         print("[CameraService] Creating preview layer for view")
         print("[CameraService]   • Session running: \(session.isRunning)")
         print("[CameraService]   • Session inputs: \(session.inputs.count), outputs: \(session.outputs.count)")
+        print("[CameraService]   • View dimensions: \(view.bounds.width)x\(view.bounds.height)")
 
         // If we already have a layer, reuse it (helps during hot-reloads)
         if let existingLayer = self.previewLayer {
             print("[CameraService] Re-using existing preview layer")
+            
+            // Ensure proper frame and position
             existingLayer.frame = view.bounds
-            existingLayer.bounds = view.bounds
             existingLayer.position = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+            
+            // Force immediate layout update
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            existingLayer.layoutIfNeeded()
+            CATransaction.commit()
+            
             return existingLayer
         }
 
+        // Create a new preview layer with explicit settings
         let previewLayer = AVCaptureVideoPreviewLayer(session: session)
+        
+        // Configure visual appearance for better visibility
         previewLayer.videoGravity = .resizeAspectFill
-
-        // Explicit geometry setup
-        previewLayer.frame = view.bounds
-        previewLayer.bounds = view.bounds
-        previewLayer.position = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
-
+        previewLayer.opacity = 1.0
+        previewLayer.backgroundColor = UIColor.black.cgColor // Base background color
+        
+        // Set debug color to help identify layer presence (will be visible until camera feed appears)
+        let debugColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0).cgColor
+        previewLayer.backgroundColor = debugColor
+        
+        // Ensure layer is visible by setting proper z position
+        previewLayer.zPosition = -1  // Behind other UI elements but visible
+        
+        // Set explicit frame with proper bounds and position
+        let viewBounds = view.bounds
+        previewLayer.frame = viewBounds
+        previewLayer.bounds = CGRect(x: 0, y: 0, width: viewBounds.width, height: viewBounds.height)
+        previewLayer.position = CGPoint(x: viewBounds.midX, y: viewBounds.midY)
+        
+        // Add rounded corners for visual debugging (will help identify if layer is present)
+        previewLayer.cornerRadius = 0  // No corner radius for camera view
+        previewLayer.masksToBounds = true
+        
+        // Store reference
         self.previewLayer = previewLayer
 
-        // Validate connection
+        // Validate connection and log detailed status
         if let connection = previewLayer.connection {
             print("[CameraService]   • Preview connection created (enabled=\(connection.isEnabled))")
+            
+            // Force orientation update immediately
+            if connection.isVideoOrientationSupported {
+                let orientation = AVCaptureVideoOrientation(deviceOrientation: UIDevice.current.orientation)
+                connection.videoOrientation = orientation
+                print("[CameraService]   • Set initial orientation to: \(orientation.rawValue)")
+            }
         } else {
             print("[CameraService]   ⚠️ Preview connection is nil")
         }
+        
+        // Log detailed layer properties for debugging
+        print("[CameraService]   • Layer frame: \(previewLayer.frame)")
+        print("[CameraService]   • Layer z-position: \(previewLayer.zPosition)")
+        print("[CameraService]   • Layer opacity: \(previewLayer.opacity)")
+        
+        // Force immediate layout update
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        previewLayer.layoutIfNeeded()
+        CATransaction.commit()
 
         return previewLayer
     }
