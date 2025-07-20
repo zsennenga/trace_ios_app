@@ -9,14 +9,15 @@ struct ContentView: View {
     @ObservedObject private var settings = AppSettings.shared
     
     // Camera service for live feed
-    private let cameraService = CameraService()
+    @ObservedObject private var cameraService = CameraService()
     
     // State variables
     @State private var showImagePicker = false
     @State private var showControls = true
     @State private var overlayImage: UIImage? = nil
     @State private var dragOffset: CGSize = .zero
-    @State private var scale: CGFloat = 1.0
+    // Live gesture scale used during pinch for smooth resizing
+    @State private var gestureScale: CGFloat = 1.0
     @State private var lastActiveTimestamp = Date()
     @State private var hideControlsTask: DispatchWorkItem?
     @State private var orientation = UIDevice.current.orientation
@@ -25,6 +26,7 @@ struct ContentView: View {
     @State private var retryImageSelection = false
     @State private var cameraInitialized = false
     @State private var showCameraPermissionAlert = false
+    @State private var showCameraDetails = false
     
     // File operation queue to prevent race conditions
     private let fileOperationQueue = DispatchQueue(label: "com.tracingcam.fileOperations")
@@ -53,8 +55,73 @@ struct ContentView: View {
                         screenSize = geometry.size
                     }
                 
-                // Debug overlay for camera status
+                // Camera status and refresh button in top area
                 VStack {
+                    HStack {
+                        // Camera status indicator
+                        VStack(alignment: .leading) {
+                            Button(action: {
+                                withAnimation {
+                                    showCameraDetails.toggle()
+                                }
+                            }) {
+                                HStack {
+                                    Circle()
+                                        .fill(cameraService.isRunning ? Color.green : Color.red)
+                                        .frame(width: 12, height: 12)
+                                    
+                                    Text(cameraService.isRunning ? "Camera active" : "Camera inactive")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.white)
+                                }
+                                .padding(8)
+                                .background(Color.black.opacity(0.6))
+                                .cornerRadius(20)
+                            }
+                            .accessibilityLabel("Camera status: \(cameraService.isRunning ? "active" : "inactive")")
+                            .accessibilityHint("Tap to show more camera details")
+                            
+                            // Expanded camera details
+                            if showCameraDetails {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    if let error = cameraService.error {
+                                        Text("Error: \(String(describing: error))")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.red)
+                                    }
+                                    
+                                    Text(cameraService.cameraStatus)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.white)
+                                        .lineLimit(5)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(8)
+                                .background(Color.black.opacity(0.7))
+                                .cornerRadius(8)
+                                .transition(.opacity)
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        // Camera refresh button
+                        Button(action: {
+                            cameraService.refreshCamera()
+                        }) {
+                            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                .font(.system(size: 20))
+                                .foregroundColor(.white)
+                                .padding(10)
+                                .background(Color.black.opacity(0.6))
+                                .clipShape(Circle())
+                        }
+                        .accessibilityLabel("Refresh camera")
+                        .accessibilityHint("Tap to restart the camera if it's not working")
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 50)
+                    
                     if !cameraService.isAuthorized {
                         Text("Camera not authorized")
                             .foregroundColor(.red)
@@ -63,23 +130,16 @@ struct ContentView: View {
                             .cornerRadius(8)
                     }
                     
-                    if let error = cameraService.error {
-                        Text("Camera error: \(String(describing: error))")
-                            .foregroundColor(.red)
-                            .padding()
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(8)
-                    }
                     Spacer()
                 }
-                .padding(.top, 50)
                 
                 // Overlay image with gestures
                 if let image = overlayImage {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: geometry.size.width * settings.imageScale)
+                        // Apply current gestureScale for smooth live feedback
+                        .frame(width: geometry.size.width * settings.imageScale * gestureScale)
                         .position(
                             x: geometry.size.width / 2 + settings.imagePosition.x + dragOffset.width,
                             y: geometry.size.height / 2 + settings.imagePosition.y + dragOffset.height
@@ -103,14 +163,16 @@ struct ContentView: View {
                                 }
                         )
                         .gesture(
+                            // Smooth pinch-to-resize gesture
                             MagnificationGesture()
                                 .onChanged { value in
-                                    scale = value
+                                    gestureScale = value      // live update
                                     userInteracted()
                                 }
-                                .onEnded { value in
-                                    settings.imageScale = settings.imageScale * scale
-                                    scale = 1.0
+                                .onEnded { finalValue in
+                                    // Persist the new scale relative to previous persisted scale
+                                    settings.imageScale *= finalValue
+                                    gestureScale = 1.0         // reset for next gesture
                                 }
                         )
                 } else {
@@ -182,8 +244,13 @@ struct ContentView: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
+                // Only toggle controls if we're not tapping on the camera status area
                 withAnimation {
                     showControls.toggle()
+                    // Auto-hide camera details when showing controls
+                    if showControls && showCameraDetails {
+                        showCameraDetails = false
+                    }
                 }
                 userInteracted()
             }
@@ -286,7 +353,7 @@ struct ContentView: View {
             cameraService.setupCamera()
             // Add a delay and retry if needed
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if !cameraService.session.isRunning {
+                if !cameraService.isRunning {
                     print("[ContentView] Camera session not running after 1s, retrying setup")
                     cameraService.setupCamera()
                 }
@@ -506,7 +573,7 @@ struct ContentView: View {
 
 // Camera preview wrapper for SwiftUI
 struct CameraPreview: UIViewRepresentable {
-    let cameraService: CameraService
+    @ObservedObject var cameraService: CameraService
     
     func makeUIView(context: Context) -> UIView {
         print("[CameraPreview] Creating camera preview view")
@@ -526,13 +593,13 @@ struct CameraPreview: UIViewRepresentable {
         // Ensure camera is set up
         if !cameraService.isAuthorized {
             print("[CameraPreview] Camera not authorized")
-        } else if !cameraService.session.isRunning {
+        } else if !cameraService.isRunning {
             print("[CameraPreview] Starting camera session")
             cameraService.startSession()
             
             // Double-check that session started
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if !cameraService.session.isRunning {
+                if !cameraService.isRunning {
                     print("[CameraPreview] Camera session failed to start, retrying")
                     cameraService.setupCamera()
                     cameraService.startSession()
@@ -550,7 +617,7 @@ struct CameraPreview: UIViewRepresentable {
             previewLayer.frame = uiView.bounds
             
             // Ensure camera is running when view updates
-            if !cameraService.session.isRunning && cameraService.isAuthorized {
+            if !cameraService.isRunning && cameraService.isAuthorized {
                 print("[CameraPreview] Camera session not running during update, restarting")
                 cameraService.startSession()
             }
