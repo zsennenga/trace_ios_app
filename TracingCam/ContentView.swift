@@ -360,9 +360,9 @@ struct ContentView: View {
         
         // Take a snapshot after forcing refresh to help diagnose issues
         #if DEBUG
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             print("[ContentView] Taking debug snapshot after forced refresh")
-            self?.cameraService.capturePreviewSnapshot()
+            cameraService.capturePreviewSnapshot()
         }
         #endif
     }
