@@ -446,6 +446,22 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     
     /// Public method to force camera refresh - can be called from UI if needed
     func refreshCamera() {
+        print("[CameraService] Manual camera refresh requested")
+        
+        // First check if it's safe to perform camera operations
+        if !canSafelyPerformCameraOperations() {
+            print("[CameraService] ⚠️ Cannot refresh camera now - operations unsafe")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                print("[CameraService] Retrying camera refresh after delay")
+                self?.refreshCamera()
+            }
+            return
+        }
+        
+        // Use the new forceCameraRefresh method for more comprehensive refresh
+        forceCameraRefresh()
+    }
+    
     // MARK: - Debug Helpers
     /// Captures a snapshot of the current `previewLayer` and writes it as a JPEG
     /// into the application's Documents directory.  Useful for diagnosing whether
@@ -484,22 +500,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             }
         }
     }
-        print("[CameraService] Manual camera refresh requested")
-        
-        // First check if it's safe to perform camera operations
-        if !canSafelyPerformCameraOperations() {
-            print("[CameraService] ⚠️ Cannot refresh camera now - operations unsafe")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                print("[CameraService] Retrying camera refresh after delay")
-                self?.refreshCamera()
-            }
-            return
-        }
-        
-        // Use the new forceCameraRefresh method for more comprehensive refresh
-        forceCameraRefresh()
-    }
-    
+
     /// Force a complete camera refresh including preview layer recreation
     /// This method is more aggressive than safelyResetAndRestartCamera and will:
     /// 1. Force the preview layer to be recreated

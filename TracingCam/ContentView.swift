@@ -630,7 +630,7 @@ struct CameraPreview: UIViewRepresentable {
     }
     
     class Coordinator: NSObject {
-        private weak var parent: CameraPreview?
+        private var parent: CameraPreview?
         private weak var hostView: UIView?
         private var observer: NSObjectProtocol?
         
@@ -775,7 +775,7 @@ struct CameraPreview: UIViewRepresentable {
                 if SnapshotTracker.lastSnapshotTime == nil || 
                    now.timeIntervalSince(SnapshotTracker.lastSnapshotTime!) > 5.0 {
                     print("[CameraPreview] Taking debug snapshot during view update")
-                    cameraService.capturePreviewSnapshot()
+                    self.cameraService.capturePreviewSnapshot()
                     SnapshotTracker.lastSnapshotTime = now
                 }
             }
