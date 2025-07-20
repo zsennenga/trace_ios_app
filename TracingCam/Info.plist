@@ -26,34 +26,7 @@
 	<string>TracingCam needs photo library access to select images for tracing overlays.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>TracingCam saves temporary copies of selected images for overlay use.</string>
-	<!-- Privacy Manifest reference for accessed API categories -->
-	<key>NSPrivacyAccessedAPITypes</key>
-	<array>
-		<dict>
-			<key>NSPrivacyAccessedAPIType</key>
-			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
-			<key>NSPrivacyAccessedAPITypeReasons</key>
-			<array>
-				<string>CA92.1</string>
-			</array>
-		</dict>
-		<dict>
-			<key>NSPrivacyAccessedAPIType</key>
-			<string>NSPrivacyAccessedAPICategoryPhotoLibrary</string>
-			<key>NSPrivacyAccessedAPITypeReasons</key>
-			<array>
-				<string>CA57.1</string>
-			</array>
-		</dict>
-		<dict>
-			<key>NSPrivacyAccessedAPIType</key>
-			<string>NSPrivacyAccessedAPICategoryCamera</string>
-			<key>NSPrivacyAccessedAPITypeReasons</key>
-			<array>
-				<string>CA51.1</string>
-			</array>
-		</dict>
-	</array>
+	<!-- Privacy declarations now live in PrivacyInfo.xcprivacy; duplicated keys removed -->
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -77,7 +50,7 @@
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<!-- App encryption compliance -->
 	<key>ITSAppUsesNonExemptEncryption</key>

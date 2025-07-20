@@ -89,17 +89,30 @@ class AppSettings: ObservableObject {
         do {
             let files = try fm.contentsOfDirectory(at: documentsDirectory,
                                                    includingPropertiesForKeys: nil)
-            for file in files where file != urlToKeep {
+            for file in files {
+                // Skip the file we want to keep
+                guard file != urlToKeep else { continue }
+
+                // Delete only if it matches our overlay image criteria
+                guard isOverlayImage(file) else { continue }
+
                 do {
                     try fm.removeItem(at: file)
                 } catch {
                     // Log but do not crash – non-critical cleanup failure
-                    print("AppSettings clean-up error: \(error.localizedDescription)")
+                    print("AppSettings clean-up error (\(file.lastPathComponent)): \(error.localizedDescription)")
                 }
             }
         } catch {
             print("AppSettings could not enumerate documents directory: \(error.localizedDescription)")
         }
+    }
+
+    /// Determines whether a given URL points to an image file we created for overlay use.
+    /// Current heuristic:  check common image path extensions.
+    private func isOverlayImage(_ url: URL) -> Bool {
+        let validExtensions = ["jpg", "jpeg", "png", "heic"]
+        return validExtensions.contains(url.pathExtension.lowercased())
     }
 
     // Save settings to UserDefaults

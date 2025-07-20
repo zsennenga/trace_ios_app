@@ -226,7 +226,10 @@ class CameraService: NSObject, ObservableObject {
     /// Remove all inputs / outputs and allow the session to be deallocated.
     private func teardownSession() {
         guard isCaptureSessionConfigured else { return }
-        sessionQueue.sync {
+        /*  Using `sync` here could dead-lock if the caller is already
+            executing on `sessionQueue`.  Switch to `async` so we always
+            hop onto the queue safely.                                              */
+        sessionQueue.async { [self] in
             session.inputs.forEach { session.removeInput($0) }
             session.outputs.forEach { session.removeOutput($0) }
             session.stopRunning()
@@ -234,6 +237,7 @@ class CameraService: NSObject, ObservableObject {
             isCaptureSessionConfigured = false
         }
     }
+
 }
 
 // MARK: - Helpers
