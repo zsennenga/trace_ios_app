@@ -340,8 +340,23 @@ struct ContentView: View {
                         initializeCamera() // Re-initialize camera when coming back to foreground
                     }
                     .store(in: &cancellables)
+
+                // Listen for explicit camera-refresh notifications from SceneDelegate
+                NotificationCenter.default.publisher(for: SceneDelegate.forceCameraRefreshNotification)
+                    .sink { _ in
+                        print("[ContentView] Received force-camera-refresh notification")
+                        forceRefreshCamera()
+                    }
+                    .store(in: &cancellables)
             }
         }
+    }
+
+    /// Called when an external notification explicitly requests the camera be refreshed
+    private func forceRefreshCamera() {
+        print("[ContentView] Forcing camera refresh")
+        // Recreate preview layer if needed & restart camera
+        cameraService.refreshCamera()
     }
     
     // Initialize camera with proper error handling
@@ -400,6 +415,57 @@ struct ContentView: View {
     
     // Check photo library permission
     private func checkPhotoLibraryPermission(completion: @escaping (Bool) -> Void) {
+    // MARK: - Coordinator
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+    
+    class Coordinator: NSObject {
+        private weak var parent: CameraPreview?
+        private weak var hostView: UIView?
+        private var observer: NSObjectProtocol?
+        
+        init(parent: CameraPreview) {
+            self.parent = parent
+            super.init()
+            
+            observer = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("CameraPreviewNeedsRecreation"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.handleRecreation()
+            }
+        }
+        
+        deinit {
+            if let observer = observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+        
+        /// Called from `makeUIView` to remember the hosting view whose
+        /// layer tree we should update when a recreation notification arrives.
+        func startObservingRecreation(on view: UIView) {
+            self.hostView = view
+        }
+        
+        @objc private func handleRecreation() {
+            guard
+                let view = hostView,
+                let parent = parent
+            else { return }
+            
+            let previewLayer = parent.cameraService.recreatePreviewLayer(for: view)
+            
+            if !(view.layer.sublayers?.contains(previewLayer) ?? false) {
+                view.layer.addSublayer(previewLayer)
+            }
+            
+            // Ensure the layer is at the back
+            previewLayer.zPosition = -1
+        }
+    }
         let status = PHPhotoLibrary.authorizationStatus()
         switch status {
         case .authorized, .limited:
@@ -600,7 +666,8 @@ struct CameraPreview: UIViewRepresentable {
         view.backgroundColor = .black
         view.isAccessibilityElement = false // The parent view handles accessibility
         
-        let previewLayer = cameraService.createPreviewLayer(for: view)
+        // Always use the more robust recreation API so we never reuse a bad layer
+        let previewLayer = cameraService.recreatePreviewLayer(for: view)
         print("[CameraPreview] Created preview layer")
         // Give the view a debug background so we can detect if camera feed is missing
         view.backgroundColor = UIColor(white: 0.05, alpha: 1.0)
@@ -614,9 +681,9 @@ struct CameraPreview: UIViewRepresentable {
         } else {
             print("[CameraPreview] Preview layer already present in view hierarchy")
         }
-        
-        // Debug the view/layer hierarchy
-        debugCameraView(view)
+
+        // Store observer to rebuild layer if requested by CameraService
+        context.coordinator.startObservingRecreation(on: view)
 
         // Ensure the preview layer orientation matches device immediately
         DispatchQueue.main.async {

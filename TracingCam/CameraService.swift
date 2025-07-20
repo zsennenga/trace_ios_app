@@ -458,7 +458,71 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             return
         }
         
-        safelyResetAndRestartCamera()
+        // Use the new forceCameraRefresh method for more comprehensive refresh
+        forceCameraRefresh()
+    }
+    
+    /// Force a complete camera refresh including preview layer recreation
+    /// This method is more aggressive than safelyResetAndRestartCamera and will:
+    /// 1. Force the preview layer to be recreated
+    /// 2. Ensure the session is brought to the foreground
+    /// 3. Reset any interruption state
+    /// 4. Completely restart the camera session
+    func forceCameraRefresh() {
+        print("[CameraService] Forcing complete camera refresh with preview layer recreation")
+        
+        // Update operation safety status
+        DispatchQueue.main.async {
+            self.canPerformCameraOperations = false
+        }
+        
+        // First make sure we're not in the middle of a configuration
+        if isInConfiguration {
+            print("[CameraService] ⚠️ Attempted to force refresh during configuration - deferring")
+            // Defer the refresh until after current configuration completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.forceCameraRefresh()
+            }
+            return
+        }
+        
+        // Stop any existing session first
+        stopSession()
+        
+        // Clear the preview layer reference to force a new one to be created
+        DispatchQueue.main.async { [weak self] in
+            print("[CameraService] Discarding existing preview layer to force recreation")
+            if let layer = self?.previewLayer {
+                layer.removeFromSuperlayer()
+            }
+            self?.previewLayer = nil
+        }
+        
+        // Then perform the reset on the session queue
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            print("[CameraService] Executing camera reset with preview layer recreation")
+            
+            // Force the app to be considered in foreground mode for the camera
+            self.session.automaticallyConfiguresApplicationAudioSession = false
+            
+            // Reset the camera configuration
+            self.resetCameraConfiguration()
+            
+            // After reset, ensure we're ready for a fresh start
+            DispatchQueue.main.async {
+                // Reset any interruption state
+                self.hasReceivedVideoData = false
+                self.lastFrameTime = nil
+                self.consecutiveStatusCheckFailures = 0
+                
+                // Update operation safety status
+                self.canPerformCameraOperations = true
+                
+                // Notify that preview layer needs recreation
+                NotificationCenter.default.post(name: NSNotification.Name("CameraPreviewNeedsRecreation"), object: nil)
+            }
+        }
     }
     
     /// Check if the camera device is in a valid state
@@ -955,6 +1019,63 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         CATransaction.commit()
 
         return previewLayer
+    }
+    
+    /// Force recreation of the preview layer, discarding any existing layer
+    /// This is useful when the camera feed is not visible despite the camera being active
+    func recreatePreviewLayer(for view: UIView) -> AVCaptureVideoPreviewLayer {
+        print("[CameraService] Forcing preview layer recreation")
+        
+        // Remove any existing layer
+        if let existingLayer = previewLayer {
+            print("[CameraService] Removing existing preview layer")
+            existingLayer.removeFromSuperlayer()
+            self.previewLayer = nil
+        }
+        
+        // Create a fresh layer with high visibility settings
+        let newLayer = AVCaptureVideoPreviewLayer(session: session)
+        
+        // Configure for maximum visibility
+        newLayer.videoGravity = .resizeAspectFill
+        newLayer.opacity = 1.0
+        
+        // Use a distinctive background color so we can tell if the layer is visible
+        newLayer.backgroundColor = UIColor(red: 0.2, green: 0.0, blue: 0.0, alpha: 1.0).cgColor
+        
+        // Ensure layer is visible in the view hierarchy
+        newLayer.zPosition = -1
+        
+        // Set explicit frame with proper bounds and position
+        let viewBounds = view.bounds
+        newLayer.frame = viewBounds
+        newLayer.position = CGPoint(x: viewBounds.midX, y: viewBounds.midY)
+        
+        // Add a subtle border to help identify the layer boundaries
+        newLayer.borderColor = UIColor.red.withAlphaComponent(0.3).cgColor
+        newLayer.borderWidth = 2
+        
+        // Store reference
+        self.previewLayer = newLayer
+        
+        // Force connection to be enabled and set orientation
+        if let connection = newLayer.connection {
+            connection.isEnabled = true
+            
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = AVCaptureVideoOrientation(deviceOrientation: UIDevice.current.orientation)
+            }
+        }
+        
+        print("[CameraService] Created new preview layer with dimensions: \(newLayer.frame.width)x\(newLayer.frame.height)")
+        
+        // Force immediate layout update
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        newLayer.layoutIfNeeded()
+        CATransaction.commit()
+        
+        return newLayer
     }
     
     // MARK: - Session Control
