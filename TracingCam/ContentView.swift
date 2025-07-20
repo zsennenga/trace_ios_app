@@ -185,20 +185,19 @@ struct ContentView: View {
                 // Setup orientation change publisher
                 NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)
                     .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-                    .sink { [weak self] _ in
-                        guard let self = self else { return }
+                    .sink { _ in
                         let newOrientation = UIDevice.current.orientation
                         if newOrientation.isPortrait || newOrientation.isLandscape {
-                            self.orientation = newOrientation
-                            self.updateLayoutForOrientation()
+                            orientation = newOrientation
+                            updateLayoutForOrientation()
                         }
                     }
                     .store(in: &cancellables)
                 
                 // Setup app foreground/background publishers
                 NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
-                    .sink { [weak self] _ in
-                        self?.loadOverlayImage() // Reload image in case it was deleted while app was in background
+                    .sink { _ in
+                        loadOverlayImage() // Reload image in case it was deleted while app was in background
                     }
                     .store(in: &cancellables)
             }
@@ -242,21 +241,16 @@ struct ContentView: View {
                 for scene in UIApplication.shared.connectedScenes {
                     guard let windowScene = scene as? UIWindowScene else { continue }
                     for window in windowScene.windows {
-                        if #available(iOS 17.0, *) {
-                            windowScene.screenshotService?.isEnabled = false
-                        } else {
-                            // Only set this property if it's available
-                            if window.responds(to: #selector(getter: UIWindow.isSecureWindow)) {
-                                window.isSecureWindow = true
-                            }
+                        if #available(iOS 13.0, *) {
+                            window.isSecure = true
                         }
                     }
                 }
             } else {
                 // Fallback for older iOS versions
                 for window in UIApplication.shared.windows {
-                    if window.responds(to: #selector(getter: UIWindow.isSecureWindow)) {
-                        window.isSecureWindow = true
+                    if #available(iOS 13.0, *) {
+                        window.isSecure = true
                     }
                 }
             }
@@ -313,8 +307,7 @@ struct ContentView: View {
         cancelHideControlsTask()
         
         // Create a new task
-        let task = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
+        let task = DispatchWorkItem {
             if Date().timeIntervalSince(self.lastActiveTimestamp) >= self.controlHideDelay {
                 DispatchQueue.main.async {
                     withAnimation {
