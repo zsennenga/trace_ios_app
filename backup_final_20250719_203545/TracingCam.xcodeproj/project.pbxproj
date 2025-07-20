@@ -18,7 +18,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A1B2C3D4E5F6G7J5 /* TracingCam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TracingCam.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6G7H9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6G7I1 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6G7I3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -26,7 +25,8 @@
 		A1B2C3D4E5F6G7I7 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6G7I9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1B2C3D4E5F6G7J2 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
-		A1B2C3D4E5F6G7J4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A1B2C3D4E5F6G7J4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A1B2C3D4E5F6G7J5 /* TracingCam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TracingCam.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6G7J6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -46,20 +46,6 @@
 			children = (
 				A1B2C3D4E5F6G7J9 /* TracingCam */,
 				A1B2C3D4E5F6G7K0 /* Products */,
-			);
-			sourceTree = "<group>";
-		};
-		A1B2C3D4E5F6G7K0 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D4E5F6G7J5 /* TracingCam.app */,
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		A1B2C3D4E5F6G7J9 /* TracingCam */ = {
-			isa = PBXGroup;
-			children = (
 				A1B2C3D4E5F6G7H9 /* AppDelegate.swift */,
 				A1B2C3D4E5F6G7I1 /* SceneDelegate.swift */,
 				A1B2C3D4E5F6G7I3 /* ContentView.swift */,
@@ -70,7 +56,21 @@
 				A1B2C3D4E5F6G7J4 /* PrivacyInfo.xcprivacy */,
 				A1B2C3D4E5F6G7J6 /* Info.plist */,
 			);
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6G7J9 /* TracingCam */ = {
+			isa = PBXGroup;
+			children = (
+			);
 			path = TracingCam;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6G7K0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D4E5F6G7J5 /* TracingCam.app */,
+			);
+			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -341,20 +341,20 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A1B2C3D4E5F6G7K6 /* Build configuration list for PBXProject "TracingCam" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A1B2C3D4E5F6G7K7 /* Debug */,
-				A1B2C3D4E5F6G7K8 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A1B2C3D4E5F6G7K2 /* Build configuration list for PBXNativeTarget "TracingCam" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A1B2C3D4E5F6G7K9 /* Debug */,
 				A1B2C3D4E5F6G7L0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D4E5F6G7K6 /* Build configuration list for PBXProject "TracingCam" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D4E5F6G7K7 /* Debug */,
+				A1B2C3D4E5F6G7K8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

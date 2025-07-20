@@ -1,3 +1,152 @@
+#!/bin/bash
+
+# final_fix.sh
+# Comprehensive script to create a clean Xcode project from scratch
+# that properly references all files in their current locations
+
+set -e  # Exit immediately if a command exits with a non-zero status
+
+# Define colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+# Print colored status messages
+function echo_status() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+function echo_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+function echo_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Get the script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+echo_status "Starting comprehensive project fix..."
+
+# Create backup directory with timestamp
+BACKUP_DIR="$SCRIPT_DIR/backup_final_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+echo_status "Created backup directory: $BACKUP_DIR"
+
+# 1. Backup all existing project files
+echo_status "Backing up existing project files..."
+if [ -d "TracingCam.xcodeproj" ]; then
+    cp -r "TracingCam.xcodeproj" "$BACKUP_DIR/"
+fi
+
+# 2. Remove Swift Package Manager files and backup
+echo_status "Removing Swift Package Manager files..."
+if [ -f "Package.swift" ]; then
+    mv "Package.swift" "$BACKUP_DIR/"
+fi
+if [ -f "Package.swift.bak" ]; then
+    mv "Package.swift.bak" "$BACKUP_DIR/"
+fi
+if [ -d "Sources" ]; then
+    mv "Sources" "$BACKUP_DIR/"
+fi
+if [ -d "Sources.bak" ]; then
+    mv "Sources.bak" "$BACKUP_DIR/"
+fi
+if [ -d ".swiftpm" ]; then
+    mv ".swiftpm" "$BACKUP_DIR/"
+fi
+
+# 3. Ensure all files are in the correct locations
+echo_status "Ensuring all files are in the correct locations..."
+
+# Create necessary directories
+mkdir -p "TracingCam"
+mkdir -p "TracingCam/Base.lproj"
+
+# List of Swift files that should be in TracingCam directory
+SWIFT_FILES=(
+    "AppDelegate.swift"
+    "SceneDelegate.swift"
+    "ContentView.swift"
+    "AppSettings.swift"
+    "CameraService.swift"
+)
+
+# List of resource files
+RESOURCE_FILES=(
+    "Info.plist"
+    "PrivacyInfo.xcprivacy"
+)
+
+# Function to ensure a file is in the correct location
+function ensure_file_location() {
+    local file="$1"
+    local target_dir="$2"
+    
+    # Check if file exists in root directory
+    if [ -f "$file" ]; then
+        echo_status "Moving $file to $target_dir/"
+        cp "$file" "$BACKUP_DIR/" # Backup first
+        mv "$file" "$target_dir/"
+    # Check if file exists in backup directory but not in target
+    elif [ -f "$BACKUP_DIR/$file" ] && [ ! -f "$target_dir/$file" ]; then
+        echo_status "Restoring $file from backup to $target_dir/"
+        cp "$BACKUP_DIR/$file" "$target_dir/"
+    # Check if file doesn't exist in either location
+    elif [ ! -f "$target_dir/$file" ]; then
+        echo_warning "File not found: $file"
+    else
+        echo_status "File already in correct location: $target_dir/$file"
+    fi
+}
+
+# Move Swift files to TracingCam directory
+for file in "${SWIFT_FILES[@]}"; do
+    ensure_file_location "$file" "TracingCam"
+done
+
+# Move resource files to TracingCam directory
+for file in "${RESOURCE_FILES[@]}"; do
+    ensure_file_location "$file" "TracingCam"
+done
+
+# Handle Assets.xcassets directory
+if [ -d "Assets.xcassets" ]; then
+    echo_status "Moving Assets.xcassets to TracingCam directory..."
+    cp -r "Assets.xcassets" "$BACKUP_DIR/" # Backup first
+    mv "Assets.xcassets" "TracingCam/"
+elif [ ! -d "TracingCam/Assets.xcassets" ]; then
+    echo_warning "Assets.xcassets not found"
+fi
+
+# Handle LaunchScreen.storyboard
+if [ -f "LaunchScreen.storyboard" ]; then
+    echo_status "Moving LaunchScreen.storyboard to Base.lproj directory..."
+    cp "LaunchScreen.storyboard" "$BACKUP_DIR/" # Backup first
+    mv "LaunchScreen.storyboard" "TracingCam/Base.lproj/"
+elif [ -f "TracingCam/LaunchScreen.storyboard" ]; then
+    echo_status "Moving LaunchScreen.storyboard from TracingCam to Base.lproj directory..."
+    cp "TracingCam/LaunchScreen.storyboard" "$BACKUP_DIR/" # Backup first
+    mv "TracingCam/LaunchScreen.storyboard" "TracingCam/Base.lproj/"
+elif [ ! -f "TracingCam/Base.lproj/LaunchScreen.storyboard" ]; then
+    echo_warning "LaunchScreen.storyboard not found"
+fi
+
+# 4. Remove old Xcode project and create a new one
+echo_status "Removing old Xcode project..."
+if [ -d "TracingCam.xcodeproj" ]; then
+    rm -rf "TracingCam.xcodeproj"
+fi
+
+echo_status "Creating new Xcode project structure..."
+mkdir -p "TracingCam.xcodeproj"
+
+# Create project.pbxproj file with correct paths
+cat > "TracingCam.xcodeproj/project.pbxproj" << 'EOL'
 // !$*UTF8*$!
 {
 	archiveVersion = 1;
@@ -363,3 +512,178 @@
 	};
 	rootObject = A1B2C3D4E5F6G7K5 /* Project object */;
 }
+EOL
+
+# Create xcworkspace file structure
+mkdir -p "TracingCam.xcodeproj/project.xcworkspace"
+cat > "TracingCam.xcodeproj/project.xcworkspace/contents.xcworkspacedata" << 'EOL'
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <FileRef
+      location = "self:">
+   </FileRef>
+</Workspace>
+EOL
+
+# Create xcscheme file structure
+mkdir -p "TracingCam.xcodeproj/xcshareddata/xcschemes"
+cat > "TracingCam.xcodeproj/xcshareddata/xcschemes/TracingCam.xcscheme" << 'EOL'
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "1430"
+   version = "1.7">
+   <BuildAction
+      parallelizeBuildables = "YES"
+      buildImplicitDependencies = "YES">
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "A1B2C3D4E5F6G7K1"
+               BuildableName = "TracingCam.app"
+               BlueprintName = "TracingCam"
+               ReferencedContainer = "container:TracingCam.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <TestAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      shouldAutocreateTestPlan = "YES">
+   </TestAction>
+   <LaunchAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      launchStyle = "0"
+      useCustomWorkingDirectory = "NO"
+      ignoresPersistentStateOnLaunch = "NO"
+      debugDocumentVersioning = "YES"
+      debugServiceExtension = "internal"
+      allowLocationSimulation = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "A1B2C3D4E5F6G7K1"
+            BuildableName = "TracingCam.app"
+            BlueprintName = "TracingCam"
+            ReferencedContainer = "container:TracingCam.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </LaunchAction>
+   <ProfileAction
+      buildConfiguration = "Release"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      savedToolIdentifier = ""
+      useCustomWorkingDirectory = "NO"
+      debugDocumentVersioning = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "A1B2C3D4E5F6G7K1"
+            BuildableName = "TracingCam.app"
+            BlueprintName = "TracingCam"
+            ReferencedContainer = "container:TracingCam.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </ProfileAction>
+   <AnalyzeAction
+      buildConfiguration = "Debug">
+   </AnalyzeAction>
+   <ArchiveAction
+      buildConfiguration = "Release"
+      revealArchiveInOrganizer = "YES">
+   </ArchiveAction>
+</Scheme>
+EOL
+
+# 5. Verify all required files exist
+echo_status "Verifying all required files exist..."
+
+MISSING_FILES=0
+
+# Function to check if a file exists
+function check_file() {
+    local file="$1"
+    if [ ! -f "$file" ]; then
+        echo_error "Missing required file: $file"
+        MISSING_FILES=$((MISSING_FILES + 1))
+    else
+        echo_status "Found required file: $file"
+    fi
+}
+
+# Check all required files
+check_file "TracingCam/AppDelegate.swift"
+check_file "TracingCam/SceneDelegate.swift"
+check_file "TracingCam/ContentView.swift"
+check_file "TracingCam/CameraService.swift"
+check_file "TracingCam/AppSettings.swift"
+check_file "TracingCam/Info.plist"
+check_file "TracingCam/PrivacyInfo.xcprivacy"
+check_file "TracingCam/Base.lproj/LaunchScreen.storyboard"
+
+# Check if Assets.xcassets directory exists
+if [ ! -d "TracingCam/Assets.xcassets" ]; then
+    echo_error "Missing required directory: TracingCam/Assets.xcassets"
+    MISSING_FILES=$((MISSING_FILES + 1))
+else
+    echo_status "Found required directory: TracingCam/Assets.xcassets"
+fi
+
+# If any files are missing, try to recover them from backup
+if [ $MISSING_FILES -gt 0 ]; then
+    echo_warning "$MISSING_FILES required files are missing. Attempting to recover from backup..."
+    
+    # Look for backup files in all backup directories
+    for backup_dir in backup_*; do
+        if [ -d "$backup_dir" ]; then
+            echo_status "Checking backup directory: $backup_dir"
+            
+            # Try to recover each missing file
+            for file in AppDelegate.swift SceneDelegate.swift ContentView.swift CameraService.swift AppSettings.swift Info.plist PrivacyInfo.xcprivacy; do
+                if [ ! -f "TracingCam/$file" ] && [ -f "$backup_dir/$file" ]; then
+                    echo_status "Recovering $file from $backup_dir"
+                    cp "$backup_dir/$file" "TracingCam/"
+                fi
+            done
+            
+            # Try to recover LaunchScreen.storyboard
+            if [ ! -f "TracingCam/Base.lproj/LaunchScreen.storyboard" ] && [ -f "$backup_dir/LaunchScreen.storyboard" ]; then
+                echo_status "Recovering LaunchScreen.storyboard from $backup_dir"
+                cp "$backup_dir/LaunchScreen.storyboard" "TracingCam/Base.lproj/"
+            fi
+            
+            # Try to recover Assets.xcassets
+            if [ ! -d "TracingCam/Assets.xcassets" ] && [ -d "$backup_dir/Assets.xcassets" ]; then
+                echo_status "Recovering Assets.xcassets from $backup_dir"
+                cp -r "$backup_dir/Assets.xcassets" "TracingCam/"
+            fi
+        fi
+    done
+fi
+
+# 6. Commit changes to git if available
+if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    echo_status "Committing changes to git..."
+    git add .
+    git commit -m "Complete project structure fix: clean Xcode project with correct file references"
+    echo_status "Changes committed to git."
+fi
+
+echo_status "Project fix completed!"
+echo_status "You can now open the project in Xcode by running: open TracingCam.xcodeproj"
+
+# Make the script executable
+chmod +x "$0"
