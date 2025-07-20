@@ -355,41 +355,6 @@ struct ContentView: View {
         }
     }
     
-    // Enable screenshot protection for copyright reasons
-    private func enableScreenshotProtection() {
-        DispatchQueue.main.async {
-            // Use modern API to access windows
-            if #available(iOS 15.0, *) {
-                // Get the active scene's windows
-                for scene in UIApplication.shared.connectedScenes {
-                    guard let windowScene = scene as? UIWindowScene else { continue }
-                    for window in windowScene.windows {
-                        if #available(iOS 11.0, *) {
-                            // Dim the window while screen-capture is active; this is a public,
-                            // App-Store-safe technique that avoids private APIs.
-                            let updateSecureState: () -> Void = {
-                                window.alpha = window.screen.isCaptured ? 0.1 : 1.0
-                            }
-                            updateSecureState()
-                            NotificationCenter.default.addObserver(
-                                forName: UIScreen.capturedDidChangeNotification,
-                                object: window.screen,
-                                queue: .main
-                            ) { _ in updateSecureState() }
-                        }
-                    }
-                }
-            } else {
-                // Fallback for older iOS versions
-                for window in UIApplication.shared.windows {
-                    if #available(iOS 11.0, *) {
-                        window.alpha = window.screen.isCaptured ? 0.1 : 1.0
-                    }
-                }
-            }
-        }
-    }
-    
     // Show error alert
     private func showError(message: String, allowRetry: Bool = false) {
         print("[ContentView] Error: \(message)")
@@ -650,7 +615,8 @@ struct ImagePicker: UIViewControllerRepresentable {
             }
         }
         
-        // Improved method to save images to app's documents directory
+        // Saves a *copy* of the user-selected image inside the app sandbox so
+        // we retain access to it even after the PHPicker reference is gone.
         private func saveImageToAppDocuments(_ image: UIImage) -> URL? {
             let fileManager = FileManager.default
             
@@ -674,11 +640,6 @@ struct ImagePicker: UIViewControllerRepresentable {
                 
                 // Write the data to the file URL
                 try imageData.write(to: fileURL, options: .atomic)
-                
-                // Set file attributes to prevent iCloud backup (optional)
-                var resourceValues = URLResourceValues()
-                resourceValues.isExcludedFromBackup = true
-                try fileURL.setResourceValues(resourceValues)
                 
                 return fileURL
             } catch {
