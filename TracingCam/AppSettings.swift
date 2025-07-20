@@ -35,6 +35,9 @@ class AppSettings: ObservableObject {
     private let defaultScale: CGFloat = 0.5 // 50% width
     private let defaultPosition: CGPoint = CGPoint(x: 0, y: 0) // Centered (will be adjusted based on screen size)
     
+    // Convenience to documents directory for local image cache
+    private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+
     // Keys for UserDefaults
     private enum Keys {
         static let imageURLString = "overlayImageURLString"
@@ -71,10 +74,25 @@ class AppSettings: ObservableObject {
     
     // Reset all settings including image when selecting a new image
     func resetForNewImage(with url: URL) {
+        // Remove any previously cached images to avoid storage bloat
+        cleanUpOldImages(keeping: url)
         overlayImageURL = url
         resetToDefaults()
     }
     
+    /// Remove previously stored overlay images in documents directory except the one we want to keep
+    private func cleanUpOldImages(keeping urlToKeep: URL?) {
+        let fm = FileManager.default
+        guard
+            let files = try? fm.contentsOfDirectory(at: documentsDirectory,
+                                                    includingPropertiesForKeys: nil)
+        else { return }
+        
+        for file in files where file != urlToKeep {
+            try? fm.removeItem(at: file)
+        }
+    }
+
     // Save settings to UserDefaults
     private func saveSettings() {
         let defaults = UserDefaults.standard
@@ -99,7 +117,8 @@ class AppSettings: ObservableObject {
         
         // Load image URL
         if let urlString = defaults.string(forKey: Keys.imageURLString),
-           let url = URL(string: urlString) {
+           let url = URL(string: urlString),
+           FileManager.default.fileExists(atPath: url.path) {
             overlayImageURL = url
         } else {
             overlayImageURL = nil

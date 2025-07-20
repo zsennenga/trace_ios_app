@@ -26,9 +26,27 @@ class CameraService: NSObject, ObservableObject {
     
     override init() {
         super.init()
+        // Observe app life-cycle to pause / resume camera properly
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
         checkPermissions()
     }
     
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     func checkPermissions() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
@@ -47,6 +65,40 @@ class CameraService: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - Permission Alert helper
+    /// Convenience helper that returns an alert guiding the user to Settings
+    func makePermissionAlert() -> UIAlertController {
+        let alert = UIAlertController(
+            title: "Camera Access Needed",
+            message: "Please allow camera access in Settings to use the live preview.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(
+            UIAlertAction(title: "Open Settings", style: .default) { _ in
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+        )
+        return alert
+    }
+
+    // MARK: - App life-cycle
+    /// Called when the app moves to background; stop the session to save battery.
+    @objc private func appDidEnterBackground() {
+        stopSession()
+    }
+    
+    /// Called when the app re-enters foreground; attempt to resume the session.
+    @objc private func appWillEnterForeground() {
+        // Only restart if we already had permission
+        if isAuthorized {
+            startSession()
+        }
+    }
+
     private func requestPermissions() {
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             DispatchQueue.main.async {

@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import AVFoundation
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
@@ -32,6 +33,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidBecomeActive(_ scene: UIScene) {
         // Called when the scene has moved from an inactive state to an active state.
         // Use this method to restart any tasks that were paused (or not yet started) when the scene was inactive.
+        handleCameraPermission()
     }
 
     func sceneWillResignActive(_ scene: UIScene) {
@@ -48,5 +50,32 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // Called as the scene transitions from the foreground to the background.
         // Use this method to save data, release shared resources, and store enough scene-specific state information
         // to restore the scene back to its current state.
+        // Ensure any pending UserDefaults writes are flushed to disk so the
+        // latest overlay settings are not lost.
+        UserDefaults.standard.synchronize()
+    }
+
+    // MARK: - Helpers
+    /// If camera permission was denied, show an alert guiding the user to Settings.
+    private func handleCameraPermission() {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .denied else { return }
+
+        let alert = UIAlertController(
+            title: "Camera Access Needed",
+            message: "Please allow camera access in Settings to use the live preview.",
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(
+            UIAlertAction(title: "Open Settings", style: .default) { _ in
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+        )
+
+        // Present on top-most view controller
+        window?.rootViewController?.present(alert, animated: true, completion: nil)
     }
 }

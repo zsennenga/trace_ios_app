@@ -58,7 +58,7 @@ struct ContentView: View {
                                 dragOffset = .zero
                             }
                     )
-                    .gesture(
+                    .simultaneousGesture(
                         MagnificationGesture()
                             .onChanged { value in
                                 scale = value
@@ -133,15 +133,26 @@ struct ContentView: View {
                 settings.markAsLaunched()
             }
         }
+        .onDisappear {
+            cancelHideControlsTask()
+        }
     }
     
     // Load the overlay image from the stored URL
     private func loadOverlayImage() {
-        guard let imageURL = settings.overlayImageURL else { return }
-        
+        guard
+            let imageURL = settings.overlayImageURL,
+            FileManager.default.fileExists(atPath: imageURL.path)
+        else {
+            overlayImage = nil
+            return
+        }
+
         if let imageData = try? Data(contentsOf: imageURL),
            let image = UIImage(data: imageData) {
             self.overlayImage = image
+        } else {
+            self.overlayImage = nil
         }
     }
     
@@ -177,6 +188,12 @@ struct ContentView: View {
         // Schedule the new task
         hideControlsTask = task
         DispatchQueue.main.asyncAfter(deadline: .now() + controlHideDelay, execute: task)
+    }
+
+    // Cancel hide control task if any
+    private func cancelHideControlsTask() {
+        hideControlsTask?.cancel()
+        hideControlsTask = nil
     }
 }
 
