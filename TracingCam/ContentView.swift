@@ -26,6 +26,9 @@ struct ContentView: View {
     @State private var cameraInitialized = false
     @State private var showCameraPermissionAlert = false
     
+    // File operation queue to prevent race conditions
+    private let fileOperationQueue = DispatchQueue(label: "com.tracingcam.fileOperations")
+    
     // Store cancellables to prevent them from being deallocated
     @State private var cancellables = Set<AnyCancellable>()
     
@@ -185,11 +188,26 @@ struct ContentView: View {
                 userInteracted()
             }
             .sheet(isPresented: $showImagePicker) {
-                ImagePicker(onImagePicked: { url in
-                    if let url = url {
-                        print("[ContentView] Image picked with URL: \(url.absoluteString)")
-                        settings.resetForNewImage(with: url)
-                        loadOverlayImage()
+                ImagePicker(onImagePicked: { result in
+                    if let (imageURL, directImage) = result {
+                        print("[ContentView] Image picked with URL: \(imageURL.absoluteString)")
+                        
+                        // Store the image directly first
+                        self.overlayImage = directImage
+                        
+                        // Then update settings (which will trigger file operations)
+                        settings.resetForNewImage(with: imageURL)
+                        
+                        // Add a small delay to ensure file system operations complete
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            print("[ContentView] Delayed verification of image file")
+                            if FileManager.default.fileExists(atPath: imageURL.path) {
+                                print("[ContentView] Verified image file exists after delay")
+                            } else {
+                                print("[ContentView] WARNING: Image file still doesn't exist after delay")
+                                showError(message: "The image file could not be found. Please select a new one.", allowRetry: true)
+                            }
+                        }
                     } else {
                         showError(message: "Could not load the selected image. Please try again.", allowRetry: true)
                     }
@@ -366,44 +384,82 @@ struct ContentView: View {
     // Load the overlay image from the stored URL
     private func loadOverlayImage() {
         print("[ContentView] Loading overlay image")
-        guard
-            let imageURL = settings.overlayImageURL
-        else {
+        
+        // If we already have an overlay image loaded, don't reload it
+        if overlayImage != nil {
+            print("[ContentView] Using existing overlay image in memory")
+            return
+        }
+        
+        guard let imageURL = settings.overlayImageURL else {
             print("[ContentView] No image URL found in settings")
             overlayImage = nil
             return
         }
         
-        print("[ContentView] Attempting to load image from: \(imageURL.absoluteString)")
-        
-        // Create a fresh file URL to avoid any URL encoding issues
-        let freshURL = URL(fileURLWithPath: imageURL.path)
-        print("[ContentView] Using fresh URL path: \(freshURL.path)")
-        
-        if !FileManager.default.fileExists(atPath: freshURL.path) {
-            print("[ContentView] Image file does not exist at path: \(freshURL.path)")
-            overlayImage = nil
-            showError(message: "The image file could not be found. Please select a new one.", allowRetry: true)
-            return
-        }
-
-        do {
-            print("[ContentView] Reading image data from URL")
-            let imageData = try Data(contentsOf: freshURL)
-            print("[ContentView] Image data loaded: \(imageData.count) bytes")
+        // Use a dedicated queue for file operations to prevent race conditions
+        fileOperationQueue.async {
+            print("[ContentView] Attempting to load image from: \(imageURL.absoluteString)")
             
-            if let image = UIImage(data: imageData) {
-                print("[ContentView] Successfully created UIImage with size: \(image.size.width)x\(image.size.height)")
-                self.overlayImage = image
-            } else {
-                print("[ContentView] Failed to create UIImage from data")
-                self.overlayImage = nil
-                showError(message: "Could not load the saved image. Please select a new one.", allowRetry: true)
+            // Create a fresh file URL to avoid any URL encoding issues
+            let freshURL = URL(fileURLWithPath: imageURL.path).standardizedFileURL
+            print("[ContentView] Using standardized URL path: \(freshURL.path)")
+            
+            // Check if file exists with proper error handling
+            var isDirectory: ObjCBool = false
+            let fileExists = FileManager.default.fileExists(atPath: freshURL.path, isDirectory: &isDirectory)
+            
+            if !fileExists || isDirectory.boolValue {
+                print("[ContentView] Image file does not exist at path: \(freshURL.path)")
+                DispatchQueue.main.async {
+                    self.overlayImage = nil
+                    self.showError(message: "The image file could not be found. Please select a new one.", allowRetry: true)
+                }
+                return
             }
-        } catch {
-            print("[ContentView] Error loading image data: \(error.localizedDescription)")
-            self.overlayImage = nil
-            showError(message: "Error loading image: \(error.localizedDescription)", allowRetry: true)
+            
+            // Try to get file attributes
+            do {
+                let attributes = try FileManager.default.attributesOfItem(atPath: freshURL.path)
+                let fileSize = attributes[.size] as? UInt64 ?? 0
+                print("[ContentView] Image file exists with size: \(fileSize) bytes")
+                
+                if fileSize == 0 {
+                    print("[ContentView] Image file is empty")
+                    DispatchQueue.main.async {
+                        self.overlayImage = nil
+                        self.showError(message: "The image file is empty. Please select a new one.", allowRetry: true)
+                    }
+                    return
+                }
+            } catch {
+                print("[ContentView] Error getting file attributes: \(error.localizedDescription)")
+            }
+
+            do {
+                print("[ContentView] Reading image data from URL")
+                let imageData = try Data(contentsOf: freshURL)
+                print("[ContentView] Image data loaded: \(imageData.count) bytes")
+                
+                if let image = UIImage(data: imageData) {
+                    print("[ContentView] Successfully created UIImage with size: \(image.size.width)x\(image.size.height)")
+                    DispatchQueue.main.async {
+                        self.overlayImage = image
+                    }
+                } else {
+                    print("[ContentView] Failed to create UIImage from data")
+                    DispatchQueue.main.async {
+                        self.overlayImage = nil
+                        self.showError(message: "Could not load the saved image. Please select a new one.", allowRetry: true)
+                    }
+                }
+            } catch {
+                print("[ContentView] Error loading image data: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.overlayImage = nil
+                    self.showError(message: "Error loading image: \(error.localizedDescription)", allowRetry: true)
+                }
+            }
         }
     }
     
@@ -513,7 +569,11 @@ struct CameraPreview: UIViewRepresentable {
 // Image picker using PHPickerViewController
 struct ImagePicker: UIViewControllerRepresentable {
     @Environment(\.presentationMode) var presentationMode
-    var onImagePicked: (URL?) -> Void
+    // Modified to return both URL and UIImage directly
+    var onImagePicked: ((URL, UIImage)?) -> Void
+    
+    // File operation serialization
+    private let fileOperationLock = NSLock()
     
     func makeUIViewController(context: Context) -> PHPickerViewController {
         print("[ImagePicker] Creating image picker")
@@ -580,32 +640,54 @@ struct ImagePicker: UIViewControllerRepresentable {
                         
                         print("[ImagePicker] Successfully loaded image: \(image.size.width)x\(image.size.height)")
                         
-                        // Save image to app's documents directory
-                        if let imageURL = self.saveImageToAppDocuments(image) {
-                            // Verify the image exists immediately after saving
-                            if FileManager.default.fileExists(atPath: imageURL.path) {
-                                print("[ImagePicker] Verified image exists at: \(imageURL.path)")
+                        // Use a dedicated queue for file operations
+                        DispatchQueue(label: "com.tracingcam.imageSaving").async {
+                            // Lock to ensure thread safety
+                            self.parent.fileOperationLock.lock()
+                            defer { self.parent.fileOperationLock.unlock() }
+                            
+                            // Save image to app's documents directory
+                            if let imageURL = self.saveImageToAppDocuments(image) {
+                                // Perform synchronous verification to ensure file exists
+                                let fileManager = FileManager.default
                                 
-                                // Try to load the image back to double-check
-                                if let verifyData = try? Data(contentsOf: imageURL),
-                                   UIImage(data: verifyData) != nil {
-                                    print("[ImagePicker] Successfully verified image can be loaded")
+                                // Force a filesystem sync to ensure writes are completed
+                                try? fileManager.contentsOfDirectory(atPath: imageURL.deletingLastPathComponent().path)
+                                
+                                if fileManager.fileExists(atPath: imageURL.path) {
+                                    print("[ImagePicker] Verified image exists at: \(imageURL.path)")
                                     
-                                    // Use path-based URL to avoid encoding issues
-                                    let pathBasedURL = URL(fileURLWithPath: imageURL.path)
-                                    print("[ImagePicker] Using path-based URL: \(pathBasedURL.path)")
-                                    self.parent.onImagePicked(pathBasedURL)
+                                    // Try to load the image back to double-check
+                                    if let verifyData = try? Data(contentsOf: imageURL),
+                                       let verifiedImage = UIImage(data: verifyData) {
+                                        print("[ImagePicker] Successfully verified image can be loaded")
+                                        
+                                        // Use path-based URL to avoid encoding issues
+                                        let pathBasedURL = URL(fileURLWithPath: imageURL.path).standardizedFileURL
+                                        print("[ImagePicker] Using standardized URL: \(pathBasedURL.path)")
+                                        
+                                        // Pass both the URL and the image directly
+                                        DispatchQueue.main.async {
+                                            self.parent.onImagePicked((pathBasedURL, verifiedImage))
+                                        }
+                                    } else {
+                                        print("[ImagePicker] Image verification failed - can't load data")
+                                        DispatchQueue.main.async {
+                                            self.parent.onImagePicked(nil)
+                                        }
+                                    }
                                 } else {
-                                    print("[ImagePicker] Image verification failed - can't load data")
-                                    self.parent.onImagePicked(nil)
+                                    print("[ImagePicker] File verification failed - doesn't exist at path")
+                                    DispatchQueue.main.async {
+                                        self.parent.onImagePicked(nil)
+                                    }
                                 }
                             } else {
-                                print("[ImagePicker] File verification failed - doesn't exist at path")
-                                self.parent.onImagePicked(nil)
+                                print("[ImagePicker] Failed to save image to app documents")
+                                DispatchQueue.main.async {
+                                    self.parent.onImagePicked(nil)
+                                }
                             }
-                        } else {
-                            print("[ImagePicker] Failed to save image to app documents")
-                            self.parent.onImagePicked(nil)
                         }
                     }
                 }
@@ -638,20 +720,29 @@ struct ImagePicker: UIViewControllerRepresentable {
                     return nil
                 }
                 
-                // Write the data to the file URL
-                try imageData.write(to: fileURL, options: .atomic)
+                // Write the data to the file URL with atomic option for safety
+                try imageData.write(to: fileURL, options: [.atomic])
                 
-                return fileURL
+                // Verify the file was written
+                if fileManager.fileExists(atPath: fileURL.path) {
+                    let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+                    let fileSize = attributes[.size] as? UInt64 ?? 0
+                    print("[ImagePicker] File saved successfully, size: \(fileSize) bytes")
+                    
+                    // Force a sync to ensure the file is fully written to disk
+                    let parentDir = fileURL.deletingLastPathComponent()
+                    let dirContents = try? fileManager.contentsOfDirectory(atPath: parentDir.path)
+                    print("[ImagePicker] Directory has \(dirContents?.count ?? 0) files after save")
+                    
+                    return fileURL
+                } else {
+                    print("[ImagePicker] File doesn't exist immediately after writing!")
+                    return nil
+                }
             } catch {
                 print("[ImagePicker] Error saving image: \(error.localizedDescription)")
                 return nil
             }
-        }
-        
-        // Keep this for backward compatibility but mark as deprecated
-        @available(*, deprecated, message: "Use saveImageToAppDocuments instead")
-        private func saveImageToTemporaryLocation(_ image: UIImage) -> URL? {
-            return saveImageToAppDocuments(image)
         }
     }
 }

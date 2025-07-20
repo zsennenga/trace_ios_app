@@ -86,21 +86,42 @@ class AppSettings: ObservableObject {
     /// Remove previously stored overlay images in documents directory except the one we want to keep
     private func cleanUpOldImages(keeping urlToKeep: URL?) {
         let fm = FileManager.default
+        // Normalise the URL we want to keep once so that path-comparisons are reliable
+        let keepURL = urlToKeep?.standardizedFileURL
         do {
             let files = try fm.contentsOfDirectory(at: documentsDirectory,
                                                    includingPropertiesForKeys: nil)
             for file in files {
+                let stdFile = file.standardizedFileURL
+                
                 // Skip the file we want to keep
-                guard file != urlToKeep else { continue }
+                if let keepURL = keepURL, keepURL == stdFile {
+#if DEBUG
+                    print("AppSettings clean-up: keeping current overlay image \(stdFile.lastPathComponent)")
+#endif
+                    continue
+                }
 
                 // Delete only if it matches our overlay image criteria
                 guard isOverlayImage(file) else { continue }
 
+                // Extra safety: ensure file is deletable
+                guard fm.fileExists(atPath: stdFile.path),
+                      fm.isDeletableFile(atPath: stdFile.path) else {
+#if DEBUG
+                    print("AppSettings clean-up: file \(stdFile.lastPathComponent) not deletable or missing – skipping")
+#endif
+                    continue
+                }
+
                 do {
-                    try fm.removeItem(at: file)
+                    try fm.removeItem(at: stdFile)
+#if DEBUG
+                    print("AppSettings clean-up: deleted old overlay image \(stdFile.lastPathComponent)")
+#endif
                 } catch {
                     // Log but do not crash – non-critical cleanup failure
-                    print("AppSettings clean-up error (\(file.lastPathComponent)): \(error.localizedDescription)")
+                    print("AppSettings clean-up error (\(stdFile.lastPathComponent)): \(error.localizedDescription)")
                 }
             }
         } catch {
