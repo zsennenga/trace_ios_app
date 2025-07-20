@@ -357,6 +357,14 @@ struct ContentView: View {
         print("[ContentView] Forcing camera refresh")
         // Recreate preview layer if needed & restart camera
         cameraService.refreshCamera()
+        
+        // Take a snapshot after forcing refresh to help diagnose issues
+        #if DEBUG
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            print("[ContentView] Taking debug snapshot after forced refresh")
+            self?.cameraService.capturePreviewSnapshot()
+        }
+        #endif
     }
     
     // Initialize camera with proper error handling
@@ -381,6 +389,14 @@ struct ContentView: View {
                     print("[ContentView] Camera session not running after 1s, retrying setup")
                     cameraService.setupCamera()
                 }
+                
+                #if DEBUG
+                // Take a snapshot after camera initialization to help diagnose issues
+                if self.cameraService.isRunning {
+                    print("[ContentView] Taking debug snapshot after camera initialization")
+                    self.cameraService.capturePreviewSnapshot()
+                }
+                #endif
             }
         }
     }
@@ -415,57 +431,6 @@ struct ContentView: View {
     
     // Check photo library permission
     private func checkPhotoLibraryPermission(completion: @escaping (Bool) -> Void) {
-    // MARK: - Coordinator
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-    
-    class Coordinator: NSObject {
-        private weak var parent: CameraPreview?
-        private weak var hostView: UIView?
-        private var observer: NSObjectProtocol?
-        
-        init(parent: CameraPreview) {
-            self.parent = parent
-            super.init()
-            
-            observer = NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("CameraPreviewNeedsRecreation"),
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                self?.handleRecreation()
-            }
-        }
-        
-        deinit {
-            if let observer = observer {
-                NotificationCenter.default.removeObserver(observer)
-            }
-        }
-        
-        /// Called from `makeUIView` to remember the hosting view whose
-        /// layer tree we should update when a recreation notification arrives.
-        func startObservingRecreation(on view: UIView) {
-            self.hostView = view
-        }
-        
-        @objc private func handleRecreation() {
-            guard
-                let view = hostView,
-                let parent = parent
-            else { return }
-            
-            let previewLayer = parent.cameraService.recreatePreviewLayer(for: view)
-            
-            if !(view.layer.sublayers?.contains(previewLayer) ?? false) {
-                view.layer.addSublayer(previewLayer)
-            }
-            
-            // Ensure the layer is at the back
-            previewLayer.zPosition = -1
-        }
-    }
         let status = PHPhotoLibrary.authorizationStatus()
         switch status {
         case .authorized, .limited:
@@ -660,6 +625,57 @@ struct CameraPreview: UIViewRepresentable {
         }
     }
     
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+    
+    class Coordinator: NSObject {
+        private weak var parent: CameraPreview?
+        private weak var hostView: UIView?
+        private var observer: NSObjectProtocol?
+        
+        init(parent: CameraPreview) {
+            self.parent = parent
+            super.init()
+            
+            observer = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("CameraPreviewNeedsRecreation"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.handleRecreation()
+            }
+        }
+        
+        deinit {
+            if let observer = observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+        
+        /// Called from `makeUIView` to remember the hosting view whose
+        /// layer tree we should update when a recreation notification arrives.
+        func startObservingRecreation(on view: UIView) {
+            self.hostView = view
+        }
+        
+        @objc private func handleRecreation() {
+            guard
+                let view = hostView,
+                let parent = parent
+            else { return }
+            
+            let previewLayer = parent.cameraService.recreatePreviewLayer(for: view)
+            
+            if !(view.layer.sublayers?.contains(previewLayer) ?? false) {
+                view.layer.addSublayer(previewLayer)
+            }
+            
+            // Ensure the layer is at the back
+            previewLayer.zPosition = -1
+        }
+    }
+    
     func makeUIView(context: Context) -> UIView {
         print("[CameraPreview] Creating camera preview view")
         let view = UIView(frame: UIScreen.main.bounds)
@@ -707,6 +723,12 @@ struct CameraPreview: UIViewRepresentable {
                     print("[CameraPreview] Camera session failed to start, retrying")
                     cameraService.setupCamera()
                     cameraService.startSession()
+                } else {
+                    #if DEBUG
+                    // Take a snapshot after camera session starts successfully
+                    print("[CameraPreview] Taking debug snapshot after camera session started")
+                    self.cameraService.capturePreviewSnapshot()
+                    #endif
                 }
             }
         } else {
@@ -739,6 +761,25 @@ struct CameraPreview: UIViewRepresentable {
                 print("[CameraPreview] Camera session not running during update, restarting")
                 cameraService.startSession()
             }
+            
+            #if DEBUG
+            // Take a snapshot during view update to help diagnose issues
+            // But don't do this too often - only when significant layout changes happen
+            if uiView.frame.width > 0 && uiView.frame.height > 0 {
+                // Use a static variable to track when we last took a snapshot
+                struct SnapshotTracker {
+                    static var lastSnapshotTime: Date?
+                }
+                
+                let now = Date()
+                if SnapshotTracker.lastSnapshotTime == nil || 
+                   now.timeIntervalSince(SnapshotTracker.lastSnapshotTime!) > 5.0 {
+                    print("[CameraPreview] Taking debug snapshot during view update")
+                    cameraService.capturePreviewSnapshot()
+                    SnapshotTracker.lastSnapshotTime = now
+                }
+            }
+            #endif
         }
 
         // Re-debug after potential layout change
@@ -769,7 +810,7 @@ struct CameraPreview: UIViewRepresentable {
             }
         }
         if let pl = cameraService.previewLayer {
-            // Add a visible border so we can confirm it’s on-screen
+            // Add a visible border so we can confirm it's on-screen
             pl.borderColor = UIColor.red.withAlphaComponent(0.5).cgColor
             pl.borderWidth = 2
         }

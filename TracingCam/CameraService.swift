@@ -446,6 +446,44 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     
     /// Public method to force camera refresh - can be called from UI if needed
     func refreshCamera() {
+    // MARK: - Debug Helpers
+    /// Captures a snapshot of the current `previewLayer` and writes it as a JPEG
+    /// into the application's Documents directory.  Useful for diagnosing whether
+    /// the layer is being rendered but not displayed.
+    func capturePreviewSnapshot() {
+        DispatchQueue.main.async {
+            guard let layer = self.previewLayer else {
+                print("[CameraService][DEBUG] No previewLayer – cannot capture snapshot")
+                return
+            }
+            let bounds = layer.bounds
+            guard bounds.width > 1, bounds.height > 1 else {
+                print("[CameraService][DEBUG] previewLayer bounds are zero – skipping snapshot")
+                return
+            }
+
+            let renderer = UIGraphicsImageRenderer(size: bounds.size)
+            let image = renderer.image { ctx in
+                layer.render(in: ctx.cgContext)
+            }
+
+            guard let jpegData = image.jpegData(compressionQuality: 0.8) else {
+                print("[CameraService][DEBUG] Failed to create JPEG data from snapshot")
+                return
+            }
+
+            let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let timestamp = Int(Date().timeIntervalSince1970)
+            let fileURL = docsDir.appendingPathComponent("preview_snapshot_\(timestamp).jpg")
+
+            do {
+                try jpegData.write(to: fileURL, options: .atomic)
+                print("[CameraService][DEBUG] Preview snapshot saved to \(fileURL.path)")
+            } catch {
+                print("[CameraService][DEBUG] Failed to save snapshot: \(error.localizedDescription)")
+            }
+        }
+    }
         print("[CameraService] Manual camera refresh requested")
         
         // First check if it's safe to perform camera operations
