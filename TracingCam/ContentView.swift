@@ -349,9 +349,15 @@ struct CameraPreview: UIViewRepresentable {
         view.isAccessibilityElement = false // The parent view handles accessibility
         
         let previewLayer = cameraService.createPreviewLayer(for: view)
-        view.layer.addSublayer(previewLayer)
+        // Avoid adding duplicate preview layers if makeUIView gets called
+        if view.layer.sublayers?.contains(previewLayer) == false {
+            view.layer.addSublayer(previewLayer)
+        }
         
-        cameraService.startSession()
+        // Prevent race-condition: only start if not already running
+        if !cameraService.session.isRunning {
+            cameraService.startSession()
+        }
         
         return view
     }

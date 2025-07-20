@@ -18,7 +18,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A1B2C3D4E5F6G7J5 /* TracingCam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TracingCam.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6G7H9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6G7I1 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6G7I3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -27,6 +26,7 @@
 		A1B2C3D4E5F6G7I9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1B2C3D4E5F6G7J2 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A1B2C3D4E5F6G7J4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A1B2C3D4E5F6G7J5 /* TracingCam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TracingCam.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6G7J6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -49,14 +49,6 @@
 			);
 			sourceTree = "<group>";
 		};
-		A1B2C3D4E5F6G7K0 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D4E5F6G7J5 /* TracingCam.app */,
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
 		A1B2C3D4E5F6G7J9 /* TracingCam */ = {
 			isa = PBXGroup;
 			children = (
@@ -71,6 +63,14 @@
 				A1B2C3D4E5F6G7J6 /* Info.plist */,
 			);
 			path = TracingCam;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6G7K0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D4E5F6G7J5 /* TracingCam.app */,
+			);
+			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -285,9 +285,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = NY4Q6G2794;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TracingCam/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "TracingCam needs camera access to provide a live camera feed for tracing images.";
@@ -303,6 +304,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.TracingCam;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -314,9 +316,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = NY4Q6G2794;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TracingCam/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "TracingCam needs camera access to provide a live camera feed for tracing images.";
@@ -332,6 +335,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.TracingCam;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -341,20 +345,20 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A1B2C3D4E5F6G7K6 /* Build configuration list for PBXProject "TracingCam" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A1B2C3D4E5F6G7K7 /* Debug */,
-				A1B2C3D4E5F6G7K8 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A1B2C3D4E5F6G7K2 /* Build configuration list for PBXNativeTarget "TracingCam" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A1B2C3D4E5F6G7K9 /* Debug */,
 				A1B2C3D4E5F6G7L0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D4E5F6G7K6 /* Build configuration list for PBXProject "TracingCam" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D4E5F6G7K7 /* Debug */,
+				A1B2C3D4E5F6G7K8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

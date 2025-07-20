@@ -27,6 +27,9 @@ class CameraService: NSObject, ObservableObject {
     private let sessionQueue = DispatchQueue(label: "com.tracingcam.sessionQueue")
     private let videoOutput = AVCaptureVideoDataOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
+    /// `true` while we are inside `configureCaptureSession`; prevents a
+    /// `startRunning` call between `beginConfiguration`/`commitConfiguration`.
+    private var isSettingUp = false
     
     var previewLayer: AVCaptureVideoPreviewLayer?
     
@@ -119,14 +122,21 @@ class CameraService: NSObject, ObservableObject {
     
     func setupCamera() {
         guard isAuthorized else { return }
-        
+        // Prevent multiple concurrent configurations
+        guard !isSettingUp else { return }
+        isSettingUp = true
+
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
             
             self.configureCaptureSession { success in
+                defer { self.isSettingUp = false }
                 guard success else { return }
-                
-                self.session.startRunning()
+
+                // Start session **after** configuration block finished
+                self.sessionQueue.async {
+                    self.session.startRunning()
+                }
             }
         }
     }
@@ -199,7 +209,7 @@ class CameraService: NSObject, ObservableObject {
     }
     
     func startSession() {
-        guard !session.isRunning && isAuthorized else { return }
+        guard !session.isRunning && isAuthorized && !isSettingUp && isCaptureSessionConfigured else { return }
         
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
