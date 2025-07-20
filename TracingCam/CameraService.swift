@@ -59,6 +59,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     @Published var error: CameraError?
     @Published var isRunning: Bool = false
     @Published var cameraStatus: String = "Not initialized"
+    @Published var canPerformCameraOperations: Bool = true
     
     // MARK: - Camera Properties
     let session = AVCaptureSession()
@@ -74,6 +75,8 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     private var setupRetryCount = 0
     private let maxSetupRetries = 3
     private var setupTimer: Timer?
+    private var configurationCompletionTime: Date?
+    private let configurationCooldownPeriod: TimeInterval = 1.0 // 1 second cooldown after configuration
     
     // Session state tracking
     private var sessionStartTime: Date?
@@ -142,6 +145,33 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         cancelSetupTimer()
         stopStatusCheckTimer()
         teardownSession()
+    }
+    
+    // MARK: - Public Camera Operation Safety Check
+    
+    /// Check if camera operations can be performed safely
+    /// This method can be called by ContentView to check if it's safe to call camera methods
+    func canSafelyPerformCameraOperations() -> Bool {
+        // Check if we're in the middle of a configuration
+        if isInConfiguration {
+            print("[CameraService] Camera operations unsafe: configuration in progress")
+            return false
+        }
+        
+        // Check if we're in the cooldown period after a configuration
+        if let completionTime = configurationCompletionTime,
+           Date().timeIntervalSince(completionTime) < configurationCooldownPeriod {
+            print("[CameraService] Camera operations unsafe: in cooldown period after configuration")
+            return false
+        }
+        
+        // Check if we're in the middle of setup
+        if isSettingUp {
+            print("[CameraService] Camera operations unsafe: setup in progress")
+            return false
+        }
+        
+        return true
     }
     
     // MARK: - Permission Handling
@@ -236,7 +266,10 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     
     @objc private func sessionInterruptionEnded(notification: NSNotification) {
         print("[CameraService] Session interruption ended - restarting camera")
-        startSession()
+        // Add a delay to ensure the system is ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.startSession()
+        }
     }
     
     @objc private func sessionWasInterrupted(notification: NSNotification) {
@@ -349,6 +382,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         DispatchQueue.main.async {
             self.cameraStatus = statusString
             self.isRunning = isSessionRunning && hasVideoInput && deviceConnected && previewHasConnection
+            self.canPerformCameraOperations = !self.isInConfiguration && !self.isSettingUp
         }
         
         // Detect problems
@@ -395,6 +429,17 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     /// Public method to force camera refresh - can be called from UI if needed
     func refreshCamera() {
         print("[CameraService] Manual camera refresh requested")
+        
+        // First check if it's safe to perform camera operations
+        if !canSafelyPerformCameraOperations() {
+            print("[CameraService] ⚠️ Cannot refresh camera now - operations unsafe")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                print("[CameraService] Retrying camera refresh after delay")
+                self?.refreshCamera()
+            }
+            return
+        }
+        
         safelyResetAndRestartCamera()
     }
     
@@ -420,6 +465,11 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         }
         
         print("[CameraService] Setting up camera")
+        
+        // Update operation safety status
+        DispatchQueue.main.async {
+            self.canPerformCameraOperations = false
+        }
         
         // Prevent multiple concurrent setups
         guard !isSettingUp else {
@@ -458,9 +508,13 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                 if success {
                     print("[CameraService] Camera configuration successful")
                     
-                    // Start session on main thread for reliability
-                    DispatchQueue.main.async {
-                        print("[CameraService] Starting camera session on main thread")
+                    // Record the configuration completion time
+                    self.configurationCompletionTime = Date()
+                    
+                    // Add a delay before starting the session to avoid race conditions
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        guard let self = self else { return }
+                        print("[CameraService] Starting camera session after delay")
                         self.startSession()
                         
                         // Verify session started successfully after a short delay
@@ -475,6 +529,11 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                 
                 // Setup process is complete
                 self.isSettingUp = false
+                
+                // Update operation safety status
+                DispatchQueue.main.async {
+                    self.canPerformCameraOperations = true
+                }
             }
         }
     }
@@ -513,6 +572,11 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                 self.error = .deviceUnresponsive
             }
             isSettingUp = false
+            
+            // Update operation safety status
+            DispatchQueue.main.async {
+                self.canPerformCameraOperations = true
+            }
             return
         }
         
@@ -537,6 +601,11 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                 self.error = .configurationFailed
             }
             isSettingUp = false
+            
+            // Update operation safety status
+            DispatchQueue.main.async {
+                self.canPerformCameraOperations = true
+            }
         }
     }
     
@@ -568,6 +637,11 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     /// This is the public entry point that ensures proper sequencing
     private func safelyResetAndRestartCamera() {
         print("[CameraService] Safely resetting and restarting camera")
+        
+        // Update operation safety status
+        DispatchQueue.main.async {
+            self.canPerformCameraOperations = false
+        }
         
         // First make sure we're not in the middle of a configuration
         if isInConfiguration {
@@ -616,14 +690,19 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         isCaptureSessionConfigured = false
         hasReceivedVideoData = false
         lastFrameTime = nil
+        
+        // IMPORTANT: Reset the configuration flag after configuration is complete
         isInConfiguration = false
+        
+        // Record the configuration completion time
+        configurationCompletionTime = Date()
         
         print("[CameraService] Camera configuration reset complete")
         
-        // Restart setup process on main thread
-        DispatchQueue.main.async { [weak self] in
+        // Add a delay before restarting setup to avoid race conditions
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
-            print("[CameraService] Initiating new camera setup")
+            print("[CameraService] Initiating new camera setup after delay")
             self.setupCamera()
         }
     }
@@ -648,7 +727,12 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         defer {
             print("[CameraService] Committing session configuration")
             session.commitConfiguration()
+            
+            // IMPORTANT: Reset the configuration flag after configuration is complete
             isInConfiguration = false
+            
+            // Record the configuration completion time
+            configurationCompletionTime = Date()
         }
         
         // Set session preset
@@ -802,6 +886,22 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             return
         }
         
+        // Check if we're in the cooldown period after configuration
+        if let completionTime = configurationCompletionTime,
+           Date().timeIntervalSince(completionTime) < configurationCooldownPeriod {
+            print("[CameraService] ⚠️ Attempted to start session too soon after configuration - deferring")
+            
+            // Calculate remaining cooldown time
+            let remainingCooldown = configurationCooldownPeriod - Date().timeIntervalSince(completionTime)
+            
+            // Defer the start until after cooldown completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + remainingCooldown + 0.1) { [weak self] in
+                print("[CameraService] Cooldown period complete, starting session")
+                self?.startSession()
+            }
+            return
+        }
+        
         print("[CameraService] Starting camera session")
         sessionStartTime = Date()
         
@@ -940,6 +1040,8 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             
             // Commit configuration
             session.commitConfiguration()
+            
+            // IMPORTANT: Reset the configuration flag after configuration is complete
             isInConfiguration = false
             
             // Stop the session
@@ -952,6 +1054,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             // Update state on main thread
             DispatchQueue.main.async {
                 self.isRunning = false
+                self.canPerformCameraOperations = true
             }
         }
     }

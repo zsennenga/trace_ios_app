@@ -116,6 +116,7 @@ struct ContentView: View {
                                 .background(Color.black.opacity(0.6))
                                 .clipShape(Circle())
                         }
+                        .disabled(!cameraService.canPerformCameraOperations)
                         .accessibilityLabel("Refresh camera")
                         .accessibilityHint("Tap to restart the camera if it's not working")
                     }
@@ -345,6 +346,14 @@ struct ContentView: View {
     
     // Initialize camera with proper error handling
     private func initializeCamera() {
+        // Avoid camera calls while operations are unsafe (during config / cooldown)
+        guard cameraService.canPerformCameraOperations else {
+            print("[ContentView] Camera operations currently unsafe, deferring initialization")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                initializeCamera()
+            }
+            return
+        }
         if !cameraService.isAuthorized {
             print("[ContentView] Camera not authorized, requesting permission")
             checkCameraPermission()
@@ -353,7 +362,7 @@ struct ContentView: View {
             cameraService.setupCamera()
             // Add a delay and retry if needed
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if !cameraService.isRunning {
+                if !cameraService.isRunning && cameraService.canPerformCameraOperations {
                     print("[ContentView] Camera session not running after 1s, retrying setup")
                     cameraService.setupCamera()
                 }
@@ -593,7 +602,7 @@ struct CameraPreview: UIViewRepresentable {
         // Ensure camera is set up
         if !cameraService.isAuthorized {
             print("[CameraPreview] Camera not authorized")
-        } else if !cameraService.isRunning {
+        } else if !cameraService.isRunning && cameraService.canPerformCameraOperations {
             print("[CameraPreview] Starting camera session")
             cameraService.startSession()
             
@@ -617,7 +626,9 @@ struct CameraPreview: UIViewRepresentable {
             previewLayer.frame = uiView.bounds
             
             // Ensure camera is running when view updates
-            if !cameraService.isRunning && cameraService.isAuthorized {
+            if !cameraService.isRunning &&
+               cameraService.isAuthorized &&
+               cameraService.canPerformCameraOperations {
                 print("[CameraPreview] Camera session not running during update, restarting")
                 cameraService.startSession()
             }
