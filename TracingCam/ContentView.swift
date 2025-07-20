@@ -23,6 +23,8 @@ struct ContentView: View {
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
     @State private var retryImageSelection = false
+    @State private var cameraInitialized = false
+    @State private var showCameraPermissionAlert = false
     
     // Store cancellables to prevent them from being deallocated
     @State private var cancellables = Set<AnyCancellable>()
@@ -41,12 +43,33 @@ struct ContentView: View {
                     .edgesIgnoringSafeArea(.all)
                     .accessibilityLabel("Live camera view")
                     .onAppear {
-                        cameraService.setupCamera()
+                        print("[ContentView] onAppear - Setting up camera")
+                        initializeCamera()
                         loadOverlayImage()
                         scheduleControlsHiding()
-                        enableScreenshotProtection()
                         screenSize = geometry.size
                     }
+                
+                // Debug overlay for camera status
+                VStack {
+                    if !cameraService.isAuthorized {
+                        Text("Camera not authorized")
+                            .foregroundColor(.red)
+                            .padding()
+                            .background(Color.black.opacity(0.7))
+                            .cornerRadius(8)
+                    }
+                    
+                    if let error = cameraService.error {
+                        Text("Camera error: \(String(describing: error))")
+                            .foregroundColor(.red)
+                            .padding()
+                            .background(Color.black.opacity(0.7))
+                            .cornerRadius(8)
+                    }
+                    Spacer()
+                }
+                .padding(.top, 50)
                 
                 // Overlay image with gestures
                 if let image = overlayImage {
@@ -87,6 +110,15 @@ struct ContentView: View {
                                     scale = 1.0
                                 }
                         )
+                } else {
+                    // Show a message if no image is loaded
+                    if settings.overlayImageURL != nil {
+                        Text("Image failed to load")
+                            .foregroundColor(.yellow)
+                            .padding()
+                            .background(Color.black.opacity(0.7))
+                            .cornerRadius(8)
+                    }
                 }
                 
                 // Controls overlay
@@ -105,6 +137,7 @@ struct ContentView: View {
                                 Slider(value: $settings.imageOpacity, in: 0.1...1.0)
                                     .onChange(of: settings.imageOpacity) { _ in
                                         userInteracted()
+                                        print("[ContentView] Opacity changed to: \(settings.imageOpacity)")
                                     }
                                     .accessibilityLabel("Overlay opacity")
                                     .accessibilityValue("\(Int(settings.imageOpacity * 100)) percent")
@@ -113,7 +146,13 @@ struct ContentView: View {
                             
                             // New image button
                             Button(action: {
-                                showImagePicker = true
+                                checkPhotoLibraryPermission { granted in
+                                    if granted {
+                                        showImagePicker = true
+                                    } else {
+                                        showError(message: "Photo library access is required to select images. Please enable it in Settings.", allowRetry: false)
+                                    }
+                                }
                                 userInteracted()
                             }) {
                                 HStack {
@@ -148,6 +187,7 @@ struct ContentView: View {
             .sheet(isPresented: $showImagePicker) {
                 ImagePicker(onImagePicked: { url in
                     if let url = url {
+                        print("[ContentView] Image picked with URL: \(url.absoluteString)")
                         settings.resetForNewImage(with: url)
                         loadOverlayImage()
                     } else {
@@ -176,9 +216,21 @@ struct ContentView: View {
                 updateLayoutForOrientation()
             }
             .onAppear {
+                print("[ContentView] Main view appeared")
+                
+                // Check camera permission first
+                checkCameraPermission()
+                
                 // Check if this is the first launch
                 if settings.isFirstLaunch {
-                    showImagePicker = true
+                    print("[ContentView] First launch detected")
+                    checkPhotoLibraryPermission { granted in
+                        if granted {
+                            showImagePicker = true
+                        } else {
+                            showError(message: "Photo library access is required to select images. Please enable it in Settings.", allowRetry: false)
+                        }
+                    }
                     settings.markAsLaunched()
                 }
                 
@@ -197,10 +249,81 @@ struct ContentView: View {
                 // Setup app foreground/background publishers
                 NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
                     .sink { _ in
+                        print("[ContentView] App entered foreground, reloading image and camera")
                         loadOverlayImage() // Reload image in case it was deleted while app was in background
+                        initializeCamera() // Re-initialize camera when coming back to foreground
                     }
                     .store(in: &cancellables)
             }
+        }
+    }
+    
+    // Initialize camera with proper error handling
+    private func initializeCamera() {
+        if !cameraService.isAuthorized {
+            print("[ContentView] Camera not authorized, requesting permission")
+            checkCameraPermission()
+        } else {
+            print("[ContentView] Setting up camera")
+            cameraService.setupCamera()
+            // Add a delay and retry if needed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                if !cameraService.session.isRunning {
+                    print("[ContentView] Camera session not running after 1s, retrying setup")
+                    cameraService.setupCamera()
+                }
+            }
+        }
+    }
+    
+    // Check camera permission
+    private func checkCameraPermission() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            print("[ContentView] Camera permission already granted")
+            cameraService.setupCamera()
+        case .notDetermined:
+            print("[ContentView] Requesting camera permission")
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        print("[ContentView] Camera permission granted")
+                        cameraService.setupCamera()
+                    } else {
+                        print("[ContentView] Camera permission denied")
+                        showError(message: "Camera access is required for this app. Please enable it in Settings.", allowRetry: false)
+                    }
+                }
+            }
+        case .denied, .restricted:
+            print("[ContentView] Camera permission denied or restricted")
+            showError(message: "Camera access is required for this app. Please enable it in Settings.", allowRetry: false)
+        @unknown default:
+            print("[ContentView] Unknown camera permission status")
+            showError(message: "Unknown camera permission status. Please check your privacy settings.", allowRetry: false)
+        }
+    }
+    
+    // Check photo library permission
+    private func checkPhotoLibraryPermission(completion: @escaping (Bool) -> Void) {
+        let status = PHPhotoLibrary.authorizationStatus()
+        switch status {
+        case .authorized, .limited:
+            print("[ContentView] Photo library permission already granted")
+            completion(true)
+        case .notDetermined:
+            print("[ContentView] Requesting photo library permission")
+            PHPhotoLibrary.requestAuthorization { newStatus in
+                DispatchQueue.main.async {
+                    completion(newStatus == .authorized || newStatus == .limited)
+                }
+            }
+        case .denied, .restricted:
+            print("[ContentView] Photo library permission denied or restricted")
+            completion(false)
+        @unknown default:
+            print("[ContentView] Unknown photo library permission status")
+            completion(false)
         }
     }
     
@@ -232,43 +355,9 @@ struct ContentView: View {
         }
     }
     
-    // Enable screenshot protection for copyright reasons
-    private func enableScreenshotProtection() {
-        DispatchQueue.main.async {
-            // Use modern API to access windows
-            if #available(iOS 15.0, *) {
-                // Get the active scene's windows
-                for scene in UIApplication.shared.connectedScenes {
-                    guard let windowScene = scene as? UIWindowScene else { continue }
-                    for window in windowScene.windows {
-                        if #available(iOS 11.0, *) {
-                            // Dim the window while screen-capture is active; this is a public,
-                            // App-Store-safe technique that avoids private APIs.
-                            let updateSecureState: () -> Void = {
-                                window.alpha = window.screen.isCaptured ? 0.1 : 1.0
-                            }
-                            updateSecureState()
-                            NotificationCenter.default.addObserver(
-                                forName: UIScreen.capturedDidChangeNotification,
-                                object: window.screen,
-                                queue: .main
-                            ) { _ in updateSecureState() }
-                        }
-                    }
-                }
-            } else {
-                // Fallback for older iOS versions
-                for window in UIApplication.shared.windows {
-                    if #available(iOS 11.0, *) {
-                        window.alpha = window.screen.isCaptured ? 0.1 : 1.0
-                    }
-                }
-            }
-        }
-    }
-    
     // Show error alert
     private func showError(message: String, allowRetry: Bool = false) {
+        print("[ContentView] Error: \(message)")
         self.errorMessage = message
         self.retryImageSelection = allowRetry
         self.showErrorAlert = true
@@ -276,23 +365,39 @@ struct ContentView: View {
     
     // Load the overlay image from the stored URL
     private func loadOverlayImage() {
+        print("[ContentView] Loading overlay image")
         guard
-            let imageURL = settings.overlayImageURL,
-            FileManager.default.fileExists(atPath: imageURL.path)
+            let imageURL = settings.overlayImageURL
         else {
+            print("[ContentView] No image URL found in settings")
             overlayImage = nil
+            return
+        }
+        
+        print("[ContentView] Attempting to load image from: \(imageURL.absoluteString)")
+        
+        if !FileManager.default.fileExists(atPath: imageURL.path) {
+            print("[ContentView] Image file does not exist at path: \(imageURL.path)")
+            overlayImage = nil
+            showError(message: "The image file could not be found. Please select a new one.", allowRetry: true)
             return
         }
 
         do {
+            print("[ContentView] Reading image data from URL")
             let imageData = try Data(contentsOf: imageURL)
+            print("[ContentView] Image data loaded: \(imageData.count) bytes")
+            
             if let image = UIImage(data: imageData) {
+                print("[ContentView] Successfully created UIImage with size: \(image.size.width)x\(image.size.height)")
                 self.overlayImage = image
             } else {
+                print("[ContentView] Failed to create UIImage from data")
                 self.overlayImage = nil
                 showError(message: "Could not load the saved image. Please select a new one.", allowRetry: true)
             }
         } catch {
+            print("[ContentView] Error loading image data: \(error.localizedDescription)")
             self.overlayImage = nil
             showError(message: "Error loading image: \(error.localizedDescription)", allowRetry: true)
         }
@@ -344,19 +449,37 @@ struct CameraPreview: UIViewRepresentable {
     let cameraService: CameraService
     
     func makeUIView(context: Context) -> UIView {
+        print("[CameraPreview] Creating camera preview view")
         let view = UIView(frame: UIScreen.main.bounds)
         view.backgroundColor = .black
         view.isAccessibilityElement = false // The parent view handles accessibility
         
         let previewLayer = cameraService.createPreviewLayer(for: view)
+        print("[CameraPreview] Created preview layer")
+        
         // Avoid adding duplicate preview layers if makeUIView gets called
         if view.layer.sublayers?.contains(previewLayer) == false {
+            print("[CameraPreview] Adding preview layer to view")
             view.layer.addSublayer(previewLayer)
         }
         
-        // Prevent race-condition: only start if not already running
-        if !cameraService.session.isRunning {
+        // Ensure camera is set up
+        if !cameraService.isAuthorized {
+            print("[CameraPreview] Camera not authorized")
+        } else if !cameraService.session.isRunning {
+            print("[CameraPreview] Starting camera session")
             cameraService.startSession()
+            
+            // Double-check that session started
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if !cameraService.session.isRunning {
+                    print("[CameraPreview] Camera session failed to start, retrying")
+                    cameraService.setupCamera()
+                    cameraService.startSession()
+                }
+            }
+        } else {
+            print("[CameraPreview] Camera session already running")
         }
         
         return view
@@ -365,10 +488,17 @@ struct CameraPreview: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {
         if let previewLayer = cameraService.previewLayer {
             previewLayer.frame = uiView.bounds
+            
+            // Ensure camera is running when view updates
+            if !cameraService.session.isRunning && cameraService.isAuthorized {
+                print("[CameraPreview] Camera session not running during update, restarting")
+                cameraService.startSession()
+            }
         }
     }
     
     static func dismantleUIView(_ uiView: UIView, coordinator: ()) {
+        print("[CameraPreview] Dismantling camera preview view")
         // Ensure we clean up any resources when view is removed
         for layer in uiView.layer.sublayers ?? [] {
             layer.removeFromSuperlayer()
@@ -382,6 +512,7 @@ struct ImagePicker: UIViewControllerRepresentable {
     var onImagePicked: (URL?) -> Void
     
     func makeUIViewController(context: Context) -> PHPickerViewController {
+        print("[ImagePicker] Creating image picker")
         var configuration = PHPickerConfiguration()
         configuration.filter = .images
         configuration.selectionLimit = 1
@@ -410,43 +541,53 @@ struct ImagePicker: UIViewControllerRepresentable {
         }
         
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            print("[ImagePicker] Finished picking with \(results.count) results")
             parent.presentationMode.wrappedValue.dismiss()
             
             guard !results.isEmpty else {
+                print("[ImagePicker] No image selected (user cancelled)")
                 // User cancelled without selecting an image
                 return
             }
             
             guard let provider = results.first?.itemProvider else {
+                print("[ImagePicker] No item provider in result")
                 parent.onImagePicked(nil)
                 return
             }
             
             if provider.canLoadObject(ofClass: UIImage.self) {
+                print("[ImagePicker] Loading image from provider")
                 provider.loadObject(ofClass: UIImage.self) { [weak self] image, error in
                     DispatchQueue.main.async {
                         guard let self = self else { return }
                         
                         if let error = error {
-                            print("Image loading error: \(error.localizedDescription)")
+                            print("[ImagePicker] Image loading error: \(error.localizedDescription)")
                             self.parent.onImagePicked(nil)
                             return
                         }
                         
                         guard let image = image as? UIImage else {
+                            print("[ImagePicker] Failed to cast loaded object to UIImage")
                             self.parent.onImagePicked(nil)
                             return
                         }
                         
+                        print("[ImagePicker] Successfully loaded image: \(image.size.width)x\(image.size.height)")
+                        
                         // Save image to temporary location and return URL
                         if let imageURL = self.saveImageToTemporaryLocation(image) {
+                            print("[ImagePicker] Saved image to: \(imageURL.absoluteString)")
                             self.parent.onImagePicked(imageURL)
                         } else {
+                            print("[ImagePicker] Failed to save image to temporary location")
                             self.parent.onImagePicked(nil)
                         }
                     }
                 }
             } else {
+                print("[ImagePicker] Provider cannot load UIImage object")
                 parent.onImagePicked(nil)
             }
         }
@@ -459,14 +600,14 @@ struct ImagePicker: UIViewControllerRepresentable {
                 
                 // Ensure we have valid image data
                 guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-                    print("Could not create JPEG data from image")
+                    print("[ImagePicker] Could not create JPEG data from image")
                     return nil
                 }
                 
                 try imageData.write(to: fileURL)
                 return fileURL
             } catch {
-                print("Error saving image: \(error.localizedDescription)")
+                print("[ImagePicker] Error saving image: \(error.localizedDescription)")
                 return nil
             }
         }

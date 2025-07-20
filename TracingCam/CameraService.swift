@@ -73,6 +73,7 @@ class CameraService: NSObject, ObservableObject {
             self.isAuthorized = false
             self.error = .unknownAuthorization
         }
+        print("[CameraService] Authorization status checked – isAuthorized = \(isAuthorized)")
     }
     
     // MARK: - Permission Alert helper
@@ -122,6 +123,7 @@ class CameraService: NSObject, ObservableObject {
     
     func setupCamera() {
         guard isAuthorized else { return }
+        print("[CameraService] setupCamera() called")
         // Prevent multiple concurrent configurations
         guard !isSettingUp else { return }
         isSettingUp = true
@@ -135,7 +137,9 @@ class CameraService: NSObject, ObservableObject {
 
                 // Start session **after** configuration block finished
                 self.sessionQueue.async {
+                    print("[CameraService] Starting session …")
                     self.session.startRunning()
+                    print("[CameraService] session.startRunning() issued")
                 }
             }
         }
@@ -197,6 +201,7 @@ class CameraService: NSObject, ObservableObject {
         }
         
         isCaptureSessionConfigured = true
+        print("[CameraService] configureCaptureSession finished – success")
         completionHandler(true)
     }
     

@@ -121,7 +121,11 @@ class AppSettings: ObservableObject {
         
         // Save image URL as string
         if let url = overlayImageURL {
-            defaults.set(url.absoluteString, forKey: Keys.imageURLString)
+            // Persist only the file-system path to avoid percent-encoding issues
+            #if DEBUG
+            print("[AppSettings] Saving overlay image URL → \(url.path)")
+            #endif
+            defaults.set(url.path, forKey: Keys.imageURLString)
         } else {
             // Remove key when image is cleared
             defaults.removeObject(forKey: Keys.imageURLString)
@@ -141,10 +145,19 @@ class AppSettings: ObservableObject {
         let defaults = UserDefaults.standard
         
         // Load image URL
-        if let urlString = defaults.string(forKey: Keys.imageURLString),
-           let url = URL(string: urlString),
-           FileManager.default.fileExists(atPath: url.path) {
-            overlayImageURL = url
+        if let storedPath = defaults.string(forKey: Keys.imageURLString) {
+            let fileURL = URL(fileURLWithPath: storedPath)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                #if DEBUG
+                print("[AppSettings] Loaded overlay image URL ← \(fileURL.path)")
+                #endif
+                overlayImageURL = fileURL
+            } else {
+                #if DEBUG
+                print("[AppSettings] Stored overlay image path not found on disk, clearing reference")
+                #endif
+                overlayImageURL = nil
+            }
         } else {
             overlayImageURL = nil
         }
