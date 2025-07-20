@@ -28,6 +28,8 @@ struct ContentView: View {
     @State private var retryImageSelection = false
     @State private var cameraInitialized = false
     @State private var showCameraPermissionAlert = false
+    // Indicates we are waiting for the camera session to boot.
+    @State private var isCameraLoading = true
     
     // File operation queue to prevent race conditions
     private let fileOperationQueue = DispatchQueue(label: "com.tracingcam.fileOperations")
@@ -56,6 +58,14 @@ struct ContentView: View {
                         loadOverlayImage()
                         scheduleControlsHiding()
                         screenSize = geometry.size
+                        
+                        // If the user has no saved overlay, immediately present picker
+                        launchPickerIfNoOverlay()
+                    }
+                    // Keep track of camera running state to toggle a spinner
+                    .onReceive(cameraService.$isRunning) { running in
+                        // Camera considered "loading" until we receive frames
+                        isCameraLoading = !running
                     }
                 
                 // Camera permission warning (only shown if needed)
@@ -137,6 +147,18 @@ struct ContentView: View {
                 // Controls overlay
                 VStack {
                     Spacer()
+                    
+                    // Camera loading indicator (shows only if picker not visible)
+                    if isCameraLoading && !showImagePicker {
+                        ProgressView("Connecting camera…")
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(Color.black.opacity(0.6))
+                            .cornerRadius(10)
+                            .transition(.opacity)
+                            .padding(.bottom, 20)
+                    }
                     
                     if showControls {
                         VStack(spacing: 20) {
@@ -328,6 +350,16 @@ struct ContentView: View {
                         forceRefreshCamera()
                     }
                     .store(in: &cancellables)
+            }
+        }
+    }
+
+    /// Presents the image picker immediately if no overlay is configured.
+    private func launchPickerIfNoOverlay() {
+        // If no saved URL and no in-memory image, bring up the picker.
+        if settings.overlayImageURL == nil && overlayImage == nil {
+            DispatchQueue.main.async {
+                showImagePicker = true
             }
         }
     }
