@@ -196,7 +196,7 @@ struct ContentView: View {
                                     HStack {
                                         Image(systemName: "photo")
                                             .imageScale(.large)
-                                        Text("Choose Image")
+                                        Text("Change Image")
                                             .font(.body.bold())
                                     }
                                     .padding()
@@ -204,7 +204,7 @@ struct ContentView: View {
                                     .foregroundColor(.white)
                                     .cornerRadius(10)
                                 }
-                                .accessibilityLabel("Choose a new image")
+                                .accessibilityLabel("Change image")
                                 .accessibilityHint("Opens photo picker to select a new tracing image")
                                 
                                 // Reset button
@@ -233,6 +233,23 @@ struct ContentView: View {
                         .cornerRadius(15)
                         .padding(.bottom, 30)
                         .transition(.move(edge: .bottom))
+                        .gesture(
+                            DragGesture()
+                                .onChanged { gesture in
+                                    // Only respond to downward swipes
+                                    if gesture.translation.height > 0 {
+                                        userInteracted()
+                                    }
+                                }
+                                .onEnded { gesture in
+                                    // If swiped down with enough force, dismiss controls
+                                    if gesture.translation.height > 50 || gesture.predictedEndTranslation.height > 100 {
+                                        withAnimation {
+                                            showControls = false
+                                        }
+                                    }
+                                }
+                        )
                     }
                 }
             }
@@ -253,8 +270,18 @@ struct ContentView: View {
                         // Store the image directly first
                         self.overlayImage = directImage
                         
-                        // Then update settings (which will trigger file operations)
+                        // Save the new image URL but preserve current transform settings
+                        let currentRotation = settings.imageRotation
+                        let currentScale = settings.imageScale
+                        let currentOpacity = settings.imageOpacity
+                        
+                        // Only reset the position, not the other transform properties
                         settings.resetForNewImage(with: imageURL)
+                        
+                        // Restore the saved settings
+                        settings.imageRotation = currentRotation
+                        settings.imageScale = currentScale
+                        settings.imageOpacity = currentOpacity
                         
                         // Add a small delay to ensure file system operations complete
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

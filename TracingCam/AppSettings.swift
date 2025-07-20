@@ -86,10 +86,22 @@ class AppSettings: ObservableObject {
     
     // Reset all settings including image when selecting a new image
     func resetForNewImage(with url: URL) {
+        /// Called when the user selects a **new** overlay image.
+        /// Behaviour:
+        ///   • Cleans up previously-cached images (storage hygiene)  
+        ///   • Updates `overlayImageURL` to the newly-selected file  
+        ///   • Resets **position only** so the new image starts centred  
+        ///     –  All other transform properties (scale, opacity, rotation) are
+        ///        intentionally preserved so the user’s preferences carry over.
+        ///
+        /// Rationale: Users expect their opacity / size / rotation tweaks to remain
+        /// even when they swap the tracing reference.
+        //
         // Remove any previously cached images to avoid storage bloat
         cleanUpOldImages(keeping: url)
         overlayImageURL = url
-        resetToDefaults()
+        // Preserve scale / opacity / rotation – only reset position.
+        imagePosition = defaultPosition
     }
     
     /// Remove previously stored overlay images in documents directory except the one we want to keep
