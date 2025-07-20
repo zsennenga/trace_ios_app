@@ -2,6 +2,12 @@ import AVFoundation
 import UIKit
 import Combine
 
+/// CameraService
+///
+/// A lightweight helper that owns a single `AVCaptureSession` to provide a live-camera
+/// preview layer.  It is **privacy–aware** (requests permission only when needed) and
+/// **resource-aware** (automatically pauses the session while the app is backgrounded
+/// and frees all resources on de-init).  No captured frames ever leave the device.
 enum CameraError: Error {
     case cameraUnavailable
     case cannotAddInput
@@ -45,6 +51,7 @@ class CameraService: NSObject, ObservableObject {
     
     deinit {
         NotificationCenter.default.removeObserver(self)
+        teardownSession()
     }
 
     func checkPermissions() {
@@ -195,7 +202,13 @@ class CameraService: NSObject, ObservableObject {
         guard !session.isRunning && isAuthorized else { return }
         
         sessionQueue.async { [weak self] in
-            self?.session.startRunning()
+            guard let self = self else { return }
+            // Update orientation before starting
+            if let connection = self.previewLayer?.connection,
+               connection.isVideoOrientationSupported {
+                connection.videoOrientation = AVCaptureVideoOrientation(deviceOrientation: UIDevice.current.orientation)
+            }
+            self.session.startRunning()
         }
     }
     
@@ -203,7 +216,36 @@ class CameraService: NSObject, ObservableObject {
         guard session.isRunning else { return }
         
         sessionQueue.async { [weak self] in
-            self?.session.stopRunning()
+            guard let self = self else { return }
+            self.session.stopRunning()
+            // Break strong reference cycle to allow the session to be deallocated
+            self.previewLayer?.session = nil
+        }
+    }
+
+    /// Remove all inputs / outputs and allow the session to be deallocated.
+    private func teardownSession() {
+        guard isCaptureSessionConfigured else { return }
+        sessionQueue.sync {
+            session.inputs.forEach { session.removeInput($0) }
+            session.outputs.forEach { session.removeOutput($0) }
+            session.stopRunning()
+            previewLayer?.session = nil
+            isCaptureSessionConfigured = false
+        }
+    }
+}
+
+// MARK: - Helpers
+
+private extension AVCaptureVideoOrientation {
+    /// Map a `UIDeviceOrientation` to an `AVCaptureVideoOrientation`
+    init(deviceOrientation: UIDeviceOrientation) {
+        switch deviceOrientation {
+        case .landscapeLeft:  self = .landscapeRight
+        case .landscapeRight: self = .landscapeLeft
+        case .portraitUpsideDown: self = .portraitUpsideDown
+        default: self = .portrait
         }
     }
 }

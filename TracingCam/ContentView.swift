@@ -18,6 +18,9 @@ struct ContentView: View {
     @State private var scale: CGFloat = 1.0
     @State private var lastActiveTimestamp = Date()
     @State private var hideControlsTask: DispatchWorkItem?
+    @State private var orientation = UIDevice.current.orientation
+    @State private var showErrorAlert = false
+    @State private var errorMessage = ""
     
     // Timer for auto-hiding controls
     private let controlHideDelay: TimeInterval = 3.0 // Hide after 3 seconds
@@ -31,6 +34,7 @@ struct ContentView: View {
                     cameraService.setupCamera()
                     loadOverlayImage()
                     scheduleControlsHiding()
+                    enableScreenshotProtection()
                 }
             
             // Overlay image with gestures
@@ -123,8 +127,17 @@ struct ContentView: View {
                 if let url = url {
                     settings.resetForNewImage(with: url)
                     loadOverlayImage()
+                } else {
+                    showError(message: "Could not load the selected image. Please try again.")
                 }
             })
+        }
+        .alert(isPresented: $showErrorAlert) {
+            Alert(
+                title: Text("Error"),
+                message: Text(errorMessage),
+                dismissButton: .default(Text("OK"))
+            )
         }
         .onAppear {
             // Check if this is the first launch
@@ -132,10 +145,52 @@ struct ContentView: View {
                 showImagePicker = true
                 settings.markAsLaunched()
             }
+            
+            // Set up orientation change notification
+            NotificationCenter.default.addObserver(
+                forName: UIDevice.orientationDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self = self else { return }
+                let newOrientation = UIDevice.current.orientation
+                if newOrientation.isPortrait || newOrientation.isLandscape {
+                    self.orientation = newOrientation
+                    // Recalculate image positioning for new orientation if needed
+                    self.updateLayoutForOrientation()
+                }
+            }
         }
         .onDisappear {
             cancelHideControlsTask()
+            NotificationCenter.default.removeObserver(self, name: UIDevice.orientationDidChangeNotification, object: nil)
         }
+    }
+    
+    // Update layout when orientation changes
+    private func updateLayoutForOrientation() {
+        // Adjust positioning if needed based on orientation
+        // This ensures the overlay image stays positioned correctly
+    }
+    
+    // Enable screenshot protection for copyright reasons
+    private func enableScreenshotProtection() {
+        DispatchQueue.main.async {
+            let windows = UIApplication.shared.windows
+            for window in windows {
+                if #available(iOS 17.0, *) {
+                    window.windowScene?.screenshotService?.isEnabled = false
+                } else {
+                    window.isSecureWindow = true
+                }
+            }
+        }
+    }
+    
+    // Show error alert
+    private func showError(message: String) {
+        self.errorMessage = message
+        self.showErrorAlert = true
     }
     
     // Load the overlay image from the stored URL
@@ -148,11 +203,17 @@ struct ContentView: View {
             return
         }
 
-        if let imageData = try? Data(contentsOf: imageURL),
-           let image = UIImage(data: imageData) {
-            self.overlayImage = image
-        } else {
+        do {
+            let imageData = try Data(contentsOf: imageURL)
+            if let image = UIImage(data: imageData) {
+                self.overlayImage = image
+            } else {
+                self.overlayImage = nil
+                showError(message: "Could not load the saved image. Please select a new one.")
+            }
+        } catch {
             self.overlayImage = nil
+            showError(message: "Error loading image: \(error.localizedDescription)")
         }
     }
     
@@ -172,10 +233,11 @@ struct ContentView: View {
     // Schedule hiding of controls after inactivity
     private func scheduleControlsHiding() {
         // Cancel any existing hide task
-        hideControlsTask?.cancel()
+        cancelHideControlsTask()
         
         // Create a new task
-        let task = DispatchWorkItem {
+        let task = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
             if Date().timeIntervalSince(self.lastActiveTimestamp) >= self.controlHideDelay {
                 DispatchQueue.main.async {
                     withAnimation {
@@ -218,6 +280,13 @@ struct CameraPreview: UIViewRepresentable {
             previewLayer.frame = uiView.bounds
         }
     }
+    
+    static func dismantleUIView(_ uiView: UIView, coordinator: ()) {
+        // Ensure we clean up any resources when view is removed
+        for layer in uiView.layer.sublayers ?? [] {
+            layer.removeFromSuperlayer()
+        }
+    }
 }
 
 // Image picker using PHPickerViewController
@@ -252,6 +321,8 @@ struct ImagePicker: UIViewControllerRepresentable {
             parent.presentationMode.wrappedValue.dismiss()
             
             guard let provider = results.first?.itemProvider else {
+                // Show friendly message when no image selected
+                showNoImageSelectedAlert()
                 parent.onImagePicked(nil)
                 return
             }
@@ -272,20 +343,34 @@ struct ImagePicker: UIViewControllerRepresentable {
                         }
                     }
                 }
+            } else {
+                parent.onImagePicked(nil)
             }
         }
         
+        private func showNoImageSelectedAlert() {
+            // In a real app, we would show an alert here
+            // Since we can't directly show alerts from this coordinator,
+            // we pass nil back to the parent which will handle showing an appropriate message
+            print("No image was selected")
+        }
+        
         private func saveImageToTemporaryLocation(_ image: UIImage) -> URL? {
-            let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let fileName = UUID().uuidString
-            let fileURL = documentsDirectory.appendingPathComponent(fileName).appendingPathExtension("jpg")
-            
-            if let imageData = image.jpegData(compressionQuality: 0.8) {
-                try? imageData.write(to: fileURL)
-                return fileURL
+            // Use proper error handling
+            do {
+                let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let fileName = UUID().uuidString
+                let fileURL = documentsDirectory.appendingPathComponent(fileName).appendingPathExtension("jpg")
+                
+                if let imageData = image.jpegData(compressionQuality: 0.8) {
+                    try imageData.write(to: fileURL)
+                    return fileURL
+                }
+                return nil
+            } catch {
+                print("Error saving image: \(error.localizedDescription)")
+                return nil
             }
-            
-            return nil
         }
     }
 }

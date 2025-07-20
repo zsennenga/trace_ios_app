@@ -36,7 +36,10 @@ class AppSettings: ObservableObject {
     private let defaultPosition: CGPoint = CGPoint(x: 0, y: 0) // Centered (will be adjusted based on screen size)
     
     // Convenience to documents directory for local image cache
-    private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+    // Computed each time to avoid stale paths and remove force-unwraps.
+    private var documentsDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
 
     // Keys for UserDefaults
     private enum Keys {
@@ -83,13 +86,19 @@ class AppSettings: ObservableObject {
     /// Remove previously stored overlay images in documents directory except the one we want to keep
     private func cleanUpOldImages(keeping urlToKeep: URL?) {
         let fm = FileManager.default
-        guard
-            let files = try? fm.contentsOfDirectory(at: documentsDirectory,
-                                                    includingPropertiesForKeys: nil)
-        else { return }
-        
-        for file in files where file != urlToKeep {
-            try? fm.removeItem(at: file)
+        do {
+            let files = try fm.contentsOfDirectory(at: documentsDirectory,
+                                                   includingPropertiesForKeys: nil)
+            for file in files where file != urlToKeep {
+                do {
+                    try fm.removeItem(at: file)
+                } catch {
+                    // Log but do not crash – non-critical cleanup failure
+                    print("AppSettings clean-up error: \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            print("AppSettings could not enumerate documents directory: \(error.localizedDescription)")
         }
     }
 
@@ -100,6 +109,9 @@ class AppSettings: ObservableObject {
         // Save image URL as string
         if let url = overlayImageURL {
             defaults.set(url.absoluteString, forKey: Keys.imageURLString)
+        } else {
+            // Remove key when image is cleared
+            defaults.removeObject(forKey: Keys.imageURLString)
         }
         
         // Save position
