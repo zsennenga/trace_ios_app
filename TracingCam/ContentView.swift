@@ -241,16 +241,26 @@ struct ContentView: View {
                 for scene in UIApplication.shared.connectedScenes {
                     guard let windowScene = scene as? UIWindowScene else { continue }
                     for window in windowScene.windows {
-                        if #available(iOS 13.0, *) {
-                            window.isSecure = true
+                        if #available(iOS 11.0, *) {
+                            // Dim the window while screen-capture is active; this is a public,
+                            // App-Store-safe technique that avoids private APIs.
+                            let updateSecureState: () -> Void = {
+                                window.alpha = window.screen.isCaptured ? 0.1 : 1.0
+                            }
+                            updateSecureState()
+                            NotificationCenter.default.addObserver(
+                                forName: UIScreen.capturedDidChangeNotification,
+                                object: window.screen,
+                                queue: .main
+                            ) { _ in updateSecureState() }
                         }
                     }
                 }
             } else {
                 // Fallback for older iOS versions
                 for window in UIApplication.shared.windows {
-                    if #available(iOS 13.0, *) {
-                        window.isSecure = true
+                    if #available(iOS 11.0, *) {
+                        window.alpha = window.screen.isCaptured ? 0.1 : 1.0
                     }
                 }
             }
