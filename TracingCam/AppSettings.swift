@@ -6,25 +6,25 @@ class AppSettings: ObservableObject {
     static let shared = AppSettings()
     
     // Published properties to notify views when changes occur
-    @Published var overlayImageURL: URL? {
+    @Published var overlayImageURL: URL? = nil {
         didSet {
             saveSettings()
         }
     }
     
-    @Published var imagePosition: CGPoint {
+    @Published var imagePosition: CGPoint = CGPoint(x: 0, y: 0) {
         didSet {
             saveSettings()
         }
     }
     
-    @Published var imageScale: CGFloat {
+    @Published var imageScale: CGFloat = 0.5 {
         didSet {
             saveSettings()
         }
     }
     
-    @Published var imageOpacity: Double {
+    @Published var imageOpacity: Double = 0.5 {
         didSet {
             saveSettings()
         }
