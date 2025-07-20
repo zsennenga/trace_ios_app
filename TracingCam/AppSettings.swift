@@ -29,11 +29,19 @@ class AppSettings: ObservableObject {
             saveSettings()
         }
     }
+
+    // NEW: rotation angle in radians
+    @Published var imageRotation: Double = 0.0 {
+        didSet {
+            saveSettings()
+        }
+    }
     
     // Default values
     private let defaultOpacity: Double = 0.5 // 50% opacity
     private let defaultScale: CGFloat = 0.5 // 50% width
     private let defaultPosition: CGPoint = CGPoint(x: 0, y: 0) // Centered (will be adjusted based on screen size)
+    private let defaultRotation: Double = 0.0 // No rotation
     
     // Convenience to documents directory for local image cache
     // Computed each time to avoid stale paths and remove force-unwraps.
@@ -48,6 +56,7 @@ class AppSettings: ObservableObject {
         static let positionY = "imagePositionY"
         static let scale = "imageScale"
         static let opacity = "imageOpacity"
+        static let rotation = "imageRotation"
         static let hasLaunchedBefore = "hasLaunchedBefore"
     }
     
@@ -161,6 +170,9 @@ class AppSettings: ObservableObject {
         // Save scale and opacity
         defaults.set(imageScale, forKey: Keys.scale)
         defaults.set(imageOpacity, forKey: Keys.opacity)
+
+        // Save rotation
+        defaults.set(imageRotation, forKey: Keys.rotation)
     }
     
     // Load settings from UserDefaults
@@ -196,5 +208,8 @@ class AppSettings: ObservableObject {
         
         // Load opacity or use default
         imageOpacity = defaults.object(forKey: Keys.opacity) as? Double ?? defaultOpacity
+
+        // Load rotation or use default
+        imageRotation = defaults.object(forKey: Keys.rotation) as? Double ?? defaultRotation
     }
 }

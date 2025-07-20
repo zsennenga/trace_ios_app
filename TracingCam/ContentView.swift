@@ -18,6 +18,8 @@ struct ContentView: View {
     @State private var dragOffset: CGSize = .zero
     // Live gesture scale used during pinch for smooth resizing
     @State private var gestureScale: CGFloat = 1.0
+    // Live gesture rotation used during rotation for smooth feedback
+    @State private var gestureRotation: Angle = .zero
     @State private var lastActiveTimestamp = Date()
     @State private var hideControlsTask: DispatchWorkItem?
     @State private var orientation = UIDevice.current.orientation
@@ -141,14 +143,15 @@ struct ContentView: View {
                         .aspectRatio(contentMode: .fit)
                         // Apply current gestureScale for smooth live feedback
                         .frame(width: geometry.size.width * settings.imageScale * gestureScale)
+                        .rotationEffect(Angle(radians: settings.imageRotation) + gestureRotation)
                         .position(
                             x: geometry.size.width / 2 + settings.imagePosition.x + dragOffset.width,
                             y: geometry.size.height / 2 + settings.imagePosition.y + dragOffset.height
                         )
                         .opacity(settings.imageOpacity)
                         .accessibilityLabel("Tracing overlay image")
-                        .accessibilityHint("Double tap to select, then drag to move or pinch to resize")
-                        // Use gesture priority to avoid conflicts
+                        .accessibilityHint("Double tap to select, then drag to move, pinch to resize, or twist to rotate")
+                        // Use gesture priority and simultaneousGesture to combine gestures
                         .gesture(
                             DragGesture()
                                 .onChanged { gesture in
@@ -163,7 +166,7 @@ struct ContentView: View {
                                     dragOffset = .zero
                                 }
                         )
-                        .gesture(
+                        .simultaneousGesture(
                             // Smooth pinch-to-resize gesture
                             MagnificationGesture()
                                 .onChanged { value in
@@ -174,6 +177,19 @@ struct ContentView: View {
                                     // Persist the new scale relative to previous persisted scale
                                     settings.imageScale *= finalValue
                                     gestureScale = 1.0         // reset for next gesture
+                                }
+                        )
+                        .simultaneousGesture(
+                            // Rotation gesture for twisting the image
+                            RotationGesture()
+                                .onChanged { value in
+                                    gestureRotation = value    // live update
+                                    userInteracted()
+                                }
+                                .onEnded { finalValue in
+                                    // Persist the new rotation by adding to the existing rotation
+                                    settings.imageRotation += finalValue.radians
+                                    gestureRotation = .zero    // reset for next gesture
                                 }
                         )
                 } else {
@@ -210,30 +226,52 @@ struct ContentView: View {
                             }
                             .padding(.horizontal)
                             
-                            // New image button
-                            Button(action: {
-                                checkPhotoLibraryPermission { granted in
-                                    if granted {
-                                        showImagePicker = true
-                                    } else {
-                                        showError(message: "Photo library access is required to select images. Please enable it in Settings.", allowRetry: false)
+                            HStack(spacing: 15) {
+                                // New image button
+                                Button(action: {
+                                    checkPhotoLibraryPermission { granted in
+                                        if granted {
+                                            showImagePicker = true
+                                        } else {
+                                            showError(message: "Photo library access is required to select images. Please enable it in Settings.", allowRetry: false)
+                                        }
                                     }
+                                    userInteracted()
+                                }) {
+                                    HStack {
+                                        Image(systemName: "photo")
+                                            .imageScale(.large)
+                                        Text("Choose Image")
+                                            .font(.body.bold())
+                                    }
+                                    .padding()
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
                                 }
-                                userInteracted()
-                            }) {
-                                HStack {
-                                    Image(systemName: "photo")
-                                        .imageScale(.large)
-                                    Text("Choose Image")
-                                        .font(.body.bold())
+                                .accessibilityLabel("Choose a new image")
+                                .accessibilityHint("Opens photo picker to select a new tracing image")
+                                
+                                // Reset button
+                                Button(action: {
+                                    resetImageTransforms()
+                                    userInteracted()
+                                }) {
+                                    HStack {
+                                        Image(systemName: "arrow.counterclockwise")
+                                            .imageScale(.large)
+                                        Text("Reset")
+                                            .font(.body.bold())
+                                    }
+                                    .padding()
+                                    .background(Color.orange)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
                                 }
-                                .padding()
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
+                                .accessibilityLabel("Reset image position")
+                                .accessibilityHint("Resets the image position, scale, and rotation")
+                                .disabled(overlayImage == nil)
                             }
-                            .accessibilityLabel("Choose a new image")
-                            .accessibilityHint("Opens photo picker to select a new tracing image")
                         }
                         .padding()
                         .background(Color.black.opacity(0.6))
@@ -365,6 +403,17 @@ struct ContentView: View {
             cameraService.capturePreviewSnapshot()
         }
         #endif
+    }
+    
+    /// Reset image position, scale, and rotation to default values
+    private func resetImageTransforms() {
+        print("[ContentView] Resetting image transforms")
+        settings.imagePosition = .zero
+        settings.imageScale = 0.5 // Default scale
+        settings.imageRotation = 0.0 // Reset rotation
+        dragOffset = .zero
+        gestureScale = 1.0
+        gestureRotation = .zero
     }
     
     // Initialize camera with proper error handling
