@@ -53,7 +53,7 @@ enum CameraError: Error, CustomStringConvertible {
     }
 }
 
-class CameraService: NSObject, ObservableObject {
+class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     // MARK: - Published Properties
     @Published var isAuthorized: Bool = false
     @Published var error: CameraError?
@@ -210,6 +210,7 @@ class CameraService: NSObject, ObservableObject {
     // MARK: - App life-cycle
     @objc private func appDidEnterBackground() {
         print("[CameraService] App entered background - stopping camera")
+        stopStatusCheckTimer()
         stopSession()
     }
     
@@ -687,3 +688,241 @@ class CameraService: NSObject, ObservableObject {
         // Try to get the back ultra wide camera first
         if let ultraWideCamera = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back) {
             print("[CameraService] Found ultra wide back camera")
+            return ultraWideCamera
+        }
+        
+        // Fall back to wide angle
+        if let wideCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
+            print("[CameraService] Found wide angle back camera")
+            return wideCamera
+        }
+        
+        // Last resort - any available camera
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera],
+            mediaType: .video,
+            position: .unspecified
+        )
+        
+        if let firstCamera = discoverySession.devices.first {
+            print("[CameraService] Using fallback camera: \(firstCamera.localizedName)")
+            return firstCamera
+        }
+        
+        print("[CameraService] No cameras available")
+        return nil
+    }
+    
+    private func configureFrameRate(for device: AVCaptureDevice) throws {
+        try device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+        
+        // Find highest frame rate available
+        var bestFrameRateRange: AVFrameRateRange?
+        // `maxFrameRate` is a `Double`; keep our accumulator the same type to
+        // avoid Float/Double mismatches during comparison & assignment.
+        var bestFrameRate: Double = 0
+        
+        for range in device.activeFormat.videoSupportedFrameRateRanges {
+            // `maxFrameRate` is `Double`; `bestFrameRate` is also `Double`
+            if range.maxFrameRate > bestFrameRate {
+                bestFrameRate = range.maxFrameRate
+                bestFrameRateRange = range
+            }
+        }
+        
+        if let frameRateRange = bestFrameRateRange {
+            print("[CameraService] Setting frame rate to \(frameRateRange.maxFrameRate) fps")
+            device.activeVideoMinFrameDuration = frameRateRange.minFrameDuration
+            device.activeVideoMaxFrameDuration = frameRateRange.minFrameDuration
+        }
+    }
+    
+    // MARK: - Preview Layer
+    func createPreviewLayer(for view: UIView) -> AVCaptureVideoPreviewLayer {
+        print("[CameraService] Creating preview layer for view")
+        let previewLayer = AVCaptureVideoPreviewLayer(session: session)
+        previewLayer.videoGravity = .resizeAspectFill
+        previewLayer.frame = view.bounds
+        self.previewLayer = previewLayer
+        return previewLayer
+    }
+    
+    // MARK: - Session Control
+    func startSession() {
+        // Check if we can start the session
+        guard !session.isRunning && isAuthorized && isCaptureSessionConfigured else {
+            print("[CameraService] Cannot start session: running=\(session.isRunning), authorized=\(isAuthorized), configured=\(isCaptureSessionConfigured)")
+            return
+        }
+        
+        print("[CameraService] Starting camera session")
+        sessionStartTime = Date()
+        
+        // Force this to happen on main thread for reliability
+        if Thread.isMainThread {
+            performSessionStart()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.performSessionStart()
+            }
+        }
+    }
+    
+    private func performSessionStart() {
+        // Update orientation before starting
+        updateVideoOrientation()
+        
+        // Start the session
+        print("[CameraService] Starting session on \(Thread.isMainThread ? "main thread" : "background thread")")
+        session.startRunning()
+        
+        // Update state
+        DispatchQueue.main.async {
+            self.isRunning = self.session.isRunning
+            print("[CameraService] Session running state: \(self.session.isRunning)")
+            
+            // Start status check timer
+            if self.session.isRunning {
+                self.startStatusCheckTimer()
+            }
+        }
+    }
+    
+    private func verifySessionRunning() {
+        print("[CameraService] Verifying session is running")
+        
+        if !session.isRunning {
+            print("[CameraService] Session failed to start, retrying")
+            
+            // Try once more on the main thread
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                
+                self.session.startRunning()
+                
+                // Final check
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if !self.session.isRunning {
+                        print("[CameraService] Session failed to start after retry")
+                        self.error = .sessionStartFailed
+                        
+                        // Try a full reset as a last resort
+                        self.resetAndRestartCamera()
+                    } else {
+                        print("[CameraService] Session started successfully after retry")
+                        self.isRunning = true
+                        self.startStatusCheckTimer()
+                        
+                        // Schedule an additional verification to ensure we're getting frames
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            if !self.hasReceivedVideoData {
+                                print("[CameraService] No video frames received after 2 seconds")
+                                self.error = .noVideoSignal
+                                self.resetAndRestartCamera()
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            print("[CameraService] Session is running correctly")
+            DispatchQueue.main.async {
+                self.isRunning = true
+                self.startStatusCheckTimer()
+            }
+        }
+    }
+    
+    func stopSession() {
+        guard session.isRunning else {
+            print("[CameraService] Session already stopped")
+            return
+        }
+        
+        print("[CameraService] Stopping camera session")
+        stopStatusCheckTimer()
+        
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.session.stopRunning()
+            
+            // Update state on main thread
+            DispatchQueue.main.async {
+                self.isRunning = false
+            }
+            
+            print("[CameraService] Camera session stopped")
+        }
+    }
+    
+    private func updateVideoOrientation() {
+        if let connection = self.previewLayer?.connection,
+           connection.isVideoOrientationSupported {
+            let orientation = AVCaptureVideoOrientation(deviceOrientation: UIDevice.current.orientation)
+            connection.videoOrientation = orientation
+            print("[CameraService] Updated video orientation to: \(orientation.rawValue)")
+        }
+    }
+    
+    /// Remove all inputs / outputs and allow the session to be deallocated.
+    private func teardownSession() {
+        print("[CameraService] Tearing down camera session")
+        
+        guard isCaptureSessionConfigured else {
+            print("[CameraService] Session not configured, nothing to tear down")
+            return
+        }
+        
+        sessionQueue.async { [self] in
+            print("[CameraService] Removing all inputs and outputs")
+            session.beginConfiguration()
+            session.inputs.forEach { session.removeInput($0) }
+            session.outputs.forEach { session.removeOutput($0) }
+            session.commitConfiguration()
+            
+            session.stopRunning()
+            previewLayer?.session = nil
+            isCaptureSessionConfigured = false
+            
+            print("[CameraService] Session teardown complete")
+            
+            // Update state on main thread
+            DispatchQueue.main.async {
+                self.isRunning = false
+            }
+        }
+    }
+    
+    // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        // We don't need to process the frame, just note that we received one
+        if !self.hasReceivedVideoData {
+            print("[CameraService] First video frame received")
+            DispatchQueue.main.async {
+                self.hasReceivedVideoData = true
+            }
+        }
+        
+        // Update last frame time
+        lastFrameTime = Date()
+    }
+    
+    func captureOutput(_ output: AVCaptureOutput, didDrop sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        print("[CameraService] Frame dropped")
+    }
+}
+
+// MARK: - Helpers
+
+private extension AVCaptureVideoOrientation {
+    /// Map a `UIDeviceOrientation` to an `AVCaptureVideoOrientation`
+    init(deviceOrientation: UIDeviceOrientation) {
+        switch deviceOrientation {
+        case .landscapeLeft:  self = .landscapeRight
+        case .landscapeRight: self = .landscapeLeft
+        case .portraitUpsideDown: self = .portraitUpsideDown
+        default: self = .portrait
+        }
+    }
+}
