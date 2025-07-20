@@ -1090,9 +1090,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         newLayer.frame = viewBounds
         newLayer.position = CGPoint(x: viewBounds.midX, y: viewBounds.midY)
         
-        // Add a subtle border to help identify the layer boundaries
-        newLayer.borderColor = UIColor.red.withAlphaComponent(0.3).cgColor
-        newLayer.borderWidth = 2
+        // (Debug border removed – no longer needed in production)
         
         // Store reference
         self.previewLayer = newLayer

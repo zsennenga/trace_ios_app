@@ -809,11 +809,7 @@ struct CameraPreview: UIViewRepresentable {
                 print(" ├─ Layer[\(idx)]: \(layer) frame=\(layer.frame) z=\(layer.zPosition)")
             }
         }
-        if let pl = cameraService.previewLayer {
-            // Add a visible border so we can confirm it's on-screen
-            pl.borderColor = UIColor.red.withAlphaComponent(0.5).cgColor
-            pl.borderWidth = 2
-        }
+        // Removed temporary visual border on preview layer now that debugging is complete.
         #endif
     }
 }
