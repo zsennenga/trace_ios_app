@@ -63,13 +63,14 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     // MARK: - Camera Properties
     let session = AVCaptureSession()
     private var isCaptureSessionConfigured = false
-    private let sessionQueue = DispatchQueue(label: "com.tracingcam.sessionQueue")
-    private let mainSetupQueue = DispatchQueue(label: "com.tracingcam.mainSetupQueue")
+    private let sessionQueue = DispatchQueue(label: "com.tracingcam.sessionQueue", qos: .userInitiated)
+    private let mainSetupQueue = DispatchQueue(label: "com.tracingcam.mainSetupQueue", qos: .userInitiated)
     private let videoOutput = AVCaptureVideoDataOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
     
     // Setup state tracking
     private var isSettingUp = false
+    private var isInConfiguration = false
     private var setupRetryCount = 0
     private let maxSetupRetries = 3
     private var setupTimer: Timer?
@@ -218,7 +219,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         print("[CameraService] App entered foreground - restarting camera")
         // Only restart if we already had permission
         if isAuthorized {
-            resetAndRestartCamera()
+            safelyResetAndRestartCamera()
         }
     }
     
@@ -229,7 +230,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         // Handle session errors
         if error.code == .mediaServicesWereReset {
             print("[CameraService] Media services were reset - attempting recovery")
-            resetAndRestartCamera()
+            safelyResetAndRestartCamera()
         }
     }
     
@@ -337,6 +338,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             "Preview valid: \(previewIsValid)",
             "Device locked: \(isDeviceLocked)",
             "Has received frames: \(self.hasReceivedVideoData)",
+            "In configuration: \(self.isInConfiguration)",
             timeSinceLastFrame != nil ? String(format: "Last frame: %.1fs ago", timeSinceLastFrame!) : "No frames yet"
         ]
         
@@ -374,7 +376,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                 }
                 
                 // Attempt recovery
-                resetAndRestartCamera()
+                safelyResetAndRestartCamera()
                 consecutiveStatusCheckFailures = 0
             }
         } else {
@@ -393,7 +395,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     /// Public method to force camera refresh - can be called from UI if needed
     func refreshCamera() {
         print("[CameraService] Manual camera refresh requested")
-        resetAndRestartCamera()
+        safelyResetAndRestartCamera()
     }
     
     /// Check if the camera device is in a valid state
@@ -560,38 +562,69 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         return isResponsive && responseTime < 1.0
     }
     
-    private func resetAndRestartCamera() {
-        print("[CameraService] Resetting and restarting camera")
+    // MARK: - Safe Reset and Restart
+    
+    /// Thread-safe way to reset and restart the camera
+    /// This is the public entry point that ensures proper sequencing
+    private func safelyResetAndRestartCamera() {
+        print("[CameraService] Safely resetting and restarting camera")
         
-        // Stop any existing session
+        // First make sure we're not in the middle of a configuration
+        if isInConfiguration {
+            print("[CameraService] ⚠️ Attempted to reset camera during configuration - deferring")
+            // Defer the reset until after current configuration completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.safelyResetAndRestartCamera()
+            }
+            return
+        }
+        
+        // Stop any existing session first
         stopSession()
         
-        // Reset session configuration
+        // Then perform the reset on the session queue
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
-            
-            // Remove all inputs and outputs
-            self.session.beginConfiguration()
-            
-            for input in self.session.inputs {
-                self.session.removeInput(input)
-            }
-            
-            for output in self.session.outputs {
-                self.session.removeOutput(output)
-            }
-            
-            self.session.commitConfiguration()
-            
-            // Mark as not configured
-            self.isCaptureSessionConfigured = false
-            self.hasReceivedVideoData = false
-            self.lastFrameTime = nil
-            
-            // Restart setup process
-            DispatchQueue.main.async {
-                self.setupCamera()
-            }
+            print("[CameraService] Executing camera reset on session queue")
+            self.resetCameraConfiguration()
+        }
+    }
+    
+    /// Internal method to reset the camera configuration
+    /// Must be called on the session queue
+    private func resetCameraConfiguration() {
+        // Mark that we're entering configuration
+        isInConfiguration = true
+        print("[CameraService] Beginning camera configuration reset")
+        
+        // Begin configuration
+        session.beginConfiguration()
+        
+        // Remove all inputs and outputs
+        for input in session.inputs {
+            session.removeInput(input)
+        }
+        
+        for output in session.outputs {
+            session.removeOutput(output)
+        }
+        
+        // Commit configuration
+        session.commitConfiguration()
+        
+        // Mark as not configured and reset state
+        isCaptureSessionConfigured = false
+        hasReceivedVideoData = false
+        lastFrameTime = nil
+        isInConfiguration = false
+        
+        print("[CameraService] Camera configuration reset complete")
+        
+        // Restart setup process on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            print("[CameraService] Initiating new camera setup")
+            self.setupCamera()
         }
     }
     
@@ -606,12 +639,16 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             return
         }
         
+        // Mark that we're entering configuration
+        isInConfiguration = true
+        
         // Begin configuration
         session.beginConfiguration()
         
         defer {
             print("[CameraService] Committing session configuration")
             session.commitConfiguration()
+            isInConfiguration = false
         }
         
         // Set session preset
@@ -756,35 +793,43 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             return
         }
         
+        // CRITICAL: Never start a session during configuration
+        if isInConfiguration {
+            print("[CameraService] ⚠️ ERROR: Attempted to start session during configuration - ABORTING")
+            DispatchQueue.main.async {
+                self.error = .sessionStartFailed
+            }
+            return
+        }
+        
         print("[CameraService] Starting camera session")
         sessionStartTime = Date()
         
-        // Force this to happen on main thread for reliability
-        if Thread.isMainThread {
-            performSessionStart()
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.performSessionStart()
+        // Force this to happen on the session queue for reliability
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            // Double check we're not in configuration mode
+            guard !self.isInConfiguration else {
+                print("[CameraService] ⚠️ ERROR: Configuration in progress, cannot start session")
+                return
             }
-        }
-    }
-    
-    private func performSessionStart() {
-        // Update orientation before starting
-        updateVideoOrientation()
-        
-        // Start the session
-        print("[CameraService] Starting session on \(Thread.isMainThread ? "main thread" : "background thread")")
-        session.startRunning()
-        
-        // Update state
-        DispatchQueue.main.async {
-            self.isRunning = self.session.isRunning
-            print("[CameraService] Session running state: \(self.session.isRunning)")
             
-            // Start status check timer
-            if self.session.isRunning {
-                self.startStatusCheckTimer()
+            // Update orientation before starting
+            self.updateVideoOrientation()
+            
+            // Start the session
+            print("[CameraService] Starting session on session queue")
+            self.session.startRunning()
+            
+            // Update state
+            DispatchQueue.main.async {
+                self.isRunning = self.session.isRunning
+                print("[CameraService] Session running state: \(self.session.isRunning)")
+                
+                // Start status check timer
+                if self.session.isRunning {
+                    self.startStatusCheckTimer()
+                }
             }
         }
     }
@@ -795,9 +840,15 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         if !session.isRunning {
             print("[CameraService] Session failed to start, retrying")
             
-            // Try once more on the main thread
-            DispatchQueue.main.async { [weak self] in
+            // Try once more on the session queue
+            sessionQueue.async { [weak self] in
                 guard let self = self else { return }
+                
+                // Double check we're not in configuration mode
+                guard !self.isInConfiguration else {
+                    print("[CameraService] ⚠️ ERROR: Configuration in progress, cannot start session")
+                    return
+                }
                 
                 self.session.startRunning()
                 
@@ -808,7 +859,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                         self.error = .sessionStartFailed
                         
                         // Try a full reset as a last resort
-                        self.resetAndRestartCamera()
+                        self.safelyResetAndRestartCamera()
                     } else {
                         print("[CameraService] Session started successfully after retry")
                         self.isRunning = true
@@ -819,7 +870,7 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                             if !self.hasReceivedVideoData {
                                 print("[CameraService] No video frames received after 2 seconds")
                                 self.error = .noVideoSignal
-                                self.resetAndRestartCamera()
+                                self.safelyResetAndRestartCamera()
                             }
                         }
                     }
@@ -876,11 +927,22 @@ class CameraService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         
         sessionQueue.async { [self] in
             print("[CameraService] Removing all inputs and outputs")
+            
+            // Mark that we're entering configuration
+            isInConfiguration = true
+            
+            // Begin configuration
             session.beginConfiguration()
+            
+            // Remove all inputs and outputs
             session.inputs.forEach { session.removeInput($0) }
             session.outputs.forEach { session.removeOutput($0) }
-            session.commitConfiguration()
             
+            // Commit configuration
+            session.commitConfiguration()
+            isInConfiguration = false
+            
+            // Stop the session
             session.stopRunning()
             previewLayer?.session = nil
             isCaptureSessionConfigured = false
